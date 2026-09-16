@@ -2,6 +2,53 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:tilapulse/mock_data.dart';
+import 'package:tilapulse/services/sensor_api.dart';
+
+MetricData _liveMetric({
+  required String title,
+  required String value,
+  required String unit,
+  required DateTime timestamp,
+  required bool normal,
+}) {
+  return MetricData(
+    title: title,
+    value: value,
+    unit: unit,
+    statusLabel: normal ? 'Normal' : 'Warning',
+    trendLabel: 'Live reading',
+    updatedAt: 'Updated ${timestamp.toLocal().toString().substring(11, 16)}',
+    sparklineValues: const [],
+    tone: normal ? StatusTone.normal : StatusTone.warning,
+    trendIcon: Icons.sensors,
+  );
+}
+
+List<MetricData> _metricsFromReading(SensorReadingData reading) {
+  return [
+    _liveMetric(
+      title: 'Temperature',
+      value: reading.temperature.toStringAsFixed(1),
+      unit: '°C',
+      timestamp: reading.timestamp,
+      normal: reading.temperature >= 24 && reading.temperature <= 32,
+    ),
+    _liveMetric(
+      title: 'pH Level',
+      value: reading.ph.toStringAsFixed(2),
+      unit: '',
+      timestamp: reading.timestamp,
+      normal: reading.ph >= 6.5 && reading.ph <= 8.5,
+    ),
+    _liveMetric(
+      title: 'Dissolved Oxygen',
+      value: reading.dissolvedOxygen.toStringAsFixed(1),
+      unit: 'mg/L',
+      timestamp: reading.timestamp,
+      normal: reading.dissolvedOxygen >= 5,
+    ),
+  ];
+}
 
 class TilapulseApp extends StatelessWidget {
   const TilapulseApp({super.key});
@@ -131,14 +178,34 @@ class _AppShellState extends State<AppShell> {
 }
 
 // ===== HOME SCREEN =====
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late final Future<SensorReadingData> _readingFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _readingFuture = sensorApi.fetchLatest(defaultDeviceId);
+  }
 
   @override
   Widget build(BuildContext context) {
     final overview = mockOverview;
 
-    return SafeArea(
+    return FutureBuilder<SensorReadingData>(
+      future: _readingFuture,
+      builder: (context, snapshot) {
+        final homeMetrics = snapshot.hasData
+            ? _metricsFromReading(snapshot.data!)
+            : overview.homeMetrics;
+
+        return SafeArea(
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
@@ -213,7 +280,7 @@ class HomeScreen extends StatelessWidget {
               children: [
                 Text('Water Quality', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 12),
-                ...overview.homeMetrics.map((metric) => Padding(
+                ...homeMetrics.map((metric) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: CompactMetricCard(metric: metric),
                 )),
@@ -236,6 +303,8 @@ class HomeScreen extends StatelessWidget {
           const SizedBox(height: 20),
         ],
       ),
+        );
+      },
     );
   }
 }
@@ -250,12 +319,25 @@ class MonitoringScreen extends StatefulWidget {
 
 class _MonitoringScreenState extends State<MonitoringScreen> {
   int _selectedPeriodIndex = 0;
+  late final Future<SensorReadingData> _readingFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _readingFuture = sensorApi.fetchLatest(defaultDeviceId);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final period = monitoringPeriods[_selectedPeriodIndex];
+    return FutureBuilder<SensorReadingData>(
+      future: _readingFuture,
+      builder: (context, snapshot) {
+        final period = monitoringPeriods[_selectedPeriodIndex];
+        final metrics = snapshot.hasData
+            ? _metricsFromReading(snapshot.data!)
+            : period.metrics;
 
-    return SafeArea(
+        return SafeArea(
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
@@ -291,7 +373,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
-              children: period.metrics.map((metric) => Padding(
+              children: metrics.map((metric) => Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: SensorCard(metric: metric),
               )).toList(),
@@ -317,6 +399,8 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
             ),
         ],
       ),
+        );
+      },
     );
   }
 }
@@ -592,7 +676,7 @@ class ProfileScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-                )).toList(),
+                )),
               ],
             ),
           ),
