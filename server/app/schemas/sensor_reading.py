@@ -9,7 +9,7 @@ class SensorReadingCreate(BaseModel):
     device_id: str = Field(min_length=1, max_length=100)
     temperature: float = Field(ge=-10, le=60)
     ph: float = Field(ge=0, le=14)
-    dissolved_oxygen: float = Field(ge=0)
+    dissolved_oxygen: float = Field(ge=0, le=20)
 
 
 class SensorReading(SensorReadingCreate):
@@ -17,7 +17,7 @@ class SensorReading(SensorReadingCreate):
 
     @field_serializer("timestamp")
     def serialize_timestamp(self, timestamp: datetime) -> str:
-        return timestamp.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
 
 class DeviceSummary(BaseModel):

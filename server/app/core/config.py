@@ -10,6 +10,10 @@ class Settings(BaseSettings):
         "http://localhost:5000",
         "http://localhost:8080",
     ]
+    prediction_alpha: float = 0.7
+    prediction_beta: float = 0.3
+    prediction_window_size: int = 20
+    lstm_model_path: str = "models/lstm_model.pt"
 
 
 settings = Settings()

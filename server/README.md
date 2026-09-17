@@ -1,6 +1,6 @@
 # TilaPulse Sensor API
 
-A small FastAPI backend for receiving tilapia aquaculture sensor readings from a future ESP32 and serving them to the Flutter app. The current version uses bounded in-memory storage only. It does not use a database, MQTT, authentication, or ML predictions.
+A small FastAPI backend for receiving sensor readings from a future ESP32 and serving them to the Flutter app. The current version uses bounded in-memory storage only. It does not use a database or MQTT. Its optional ML prototype combines a PyTorch LSTM with BOCPD.
 
 ## Installation
 
@@ -31,7 +31,7 @@ Health check:
 curl http://localhost:8000/api/health
 ```
 
-Submit a sensor reading. The backend adds the UTC timestamp:
+Submit a sensor reading. The backend adds a Philippine local timestamp:
 
 ```bash
 curl -X POST http://localhost:8000/api/readings \
@@ -42,6 +42,18 @@ curl -X POST http://localhost:8000/api/readings \
     "ph": 7.2,
     "dissolved_oxygen": 5.8
   }'
+```
+
+Example response:
+
+```json
+{
+  "device_id": "ESP32-TILAPIA-001",
+  "temperature": 28.4,
+  "ph": 7.2,
+  "dissolved_oxygen": 5.8,
+  "timestamp": "2026-09-17 13:45:32"
+}
 ```
 
 Get the latest reading for a device:
@@ -75,6 +87,39 @@ curl -X POST "http://localhost:8000/api/mock/generate-batch?count=100&device_id=
 ```
 
 Mock readings use gradual sensor drift, small fluctuations, and occasional outliers. At most 1,000 readings are retained in memory; restarting the server clears them.
+
+## ML prototype
+
+Train the development-only synthetic model from this directory:
+
+```bash
+python scripts/train_lstm.py
+```
+
+Synthetic data contains temporal patterns for software development only. It does not represent real tilapia disease observations or establish model accuracy. The final model must be trained and evaluated with appropriate labelled farm/BFAR data using Accuracy, Precision, Recall, F1-score, and ROC-AUC.
+
+Predict from a sensor sequence:
+
+```bash
+curl -X POST http://localhost:8000/api/predict -H "Content-Type: application/json" -d '{
+  "readings": [
+    {"device_id": "ESP32-TILAPIA-001", "temperature": 29.5, "ph": 7.2, "dissolved_oxygen": 5.8}
+  ]
+}'
+```
+
+The response contains `lstm_probability`, `bocpd_probability`, and a configurable weighted `risk_score`. Before training, this endpoint returns HTTP 503 with instructions instead of crashing.
+
+Example response after a model has been trained:
+
+```json
+{
+  "lstm_probability": 0.72,
+  "bocpd_probability": 0.61,
+  "risk_score": 0.687,
+  "synthetic_model_notice": "A checkpoint trained on SYNTHETIC data is for software development only, not real disease evidence."
+}
+```
 
 ## Flutter integration
 

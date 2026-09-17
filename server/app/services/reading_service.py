@@ -1,11 +1,13 @@
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime
 from threading import Lock
+from zoneinfo import ZoneInfo
 
 from app.schemas.sensor_reading import DeviceSummary, SensorReading, SensorReadingCreate
 
 
 MAX_READINGS = 1000
+PHILIPPINE_TIMEZONE = ZoneInfo("Asia/Manila")
 
 
 class ReadingService:
@@ -19,18 +21,22 @@ class ReadingService:
         reading: SensorReadingCreate,
         timestamp: datetime | None = None,
     ) -> SensorReading:
-        timestamp = timestamp or datetime.now(timezone.utc)
+        timestamp = timestamp or datetime.now(PHILIPPINE_TIMEZONE)
         if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=timezone.utc)
+            timestamp = timestamp.replace(tzinfo=PHILIPPINE_TIMEZONE)
+        else:
+            timestamp = timestamp.astimezone(PHILIPPINE_TIMEZONE)
         stored = SensorReading(**reading.model_dump(), timestamp=timestamp)
         with self._lock:
             self._readings.append(stored)
             self._latest_by_device[stored.device_id] = stored
         return stored
 
-    def latest(self, device_id: str) -> SensorReading | None:
+    def latest(self, device_id: str | None = None) -> SensorReading | None:
         with self._lock:
-            return self._latest_by_device.get(device_id)
+            if device_id is not None:
+                return self._latest_by_device.get(device_id)
+            return self._readings[-1] if self._readings else None
 
     def recent(self, device_id: str | None = None, limit: int = 100) -> list[SensorReading]:
         with self._lock:

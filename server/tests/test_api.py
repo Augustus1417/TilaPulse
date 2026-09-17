@@ -31,6 +31,13 @@ def test_health():
     assert response.json() == {"status": "ok"}
 
 
+def test_root_describes_prototype_api():
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.json()["storage"] == "in-memory"
+
+
 def test_create_reading_adds_timestamp():
     response = client.post("/api/readings", json=reading_payload())
 
@@ -38,7 +45,9 @@ def test_create_reading_adds_timestamp():
     body = response.json()
     assert body["device_id"] == "ESP32-TILAPIA-001"
     assert body["temperature"] == 28.4
-    assert body["timestamp"].endswith("Z") or body["timestamp"].endswith("+00:00")
+    assert len(body["timestamp"]) == 19
+    assert body["timestamp"][4] == "-"
+    assert body["timestamp"][10] == " "
 
 
 def test_invalid_reading_is_rejected():
@@ -50,8 +59,15 @@ def test_invalid_reading_is_rejected():
     assert response.status_code == 422
 
 
+def test_prediction_reports_missing_model_without_crashing():
+    response = client.post("/api/predict", json={"readings": [reading_payload()]})
+
+    assert response.status_code == 503
+    assert "train_lstm.py" in response.json()["detail"]
+
+
 def test_latest_reading_returns_404_until_device_submits():
-    missing = client.get("/api/readings/latest", params={"device_id": "missing"})
+    missing = client.get("/api/readings/latest")
     assert missing.status_code == 404
 
     client.post("/api/readings", json=reading_payload())
