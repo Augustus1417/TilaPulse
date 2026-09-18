@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 class SensorReadingCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    device_id: str = Field(min_length=1, max_length=100)
     temperature: float = Field(ge=-10, le=60)
     ph: float = Field(ge=0, le=14)
     dissolved_oxygen: float = Field(ge=0, le=20)
@@ -20,6 +19,12 @@ class SensorReading(SensorReadingCreate):
         return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
 
-class DeviceSummary(BaseModel):
-    device_id: str
-    last_seen: datetime
+class PredictionRequest(BaseModel):
+    readings: list[SensorReadingCreate] = Field(min_length=1)
+
+
+class PredictionResponse(BaseModel):
+    lstm_probability: float
+    bocpd_probability: float
+    risk_score: float
+    synthetic_model_notice: str

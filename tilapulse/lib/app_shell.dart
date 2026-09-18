@@ -191,7 +191,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _readingFuture = sensorApi.fetchLatest(defaultDeviceId);
+    _readingFuture = sensorApi.fetchLatest();
   }
 
   @override
@@ -324,7 +324,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   @override
   void initState() {
     super.initState();
-    _readingFuture = sensorApi.fetchLatest(defaultDeviceId);
+    _readingFuture = sensorApi.fetchLatest();
   }
 
   @override

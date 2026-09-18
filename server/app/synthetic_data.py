@@ -3,7 +3,7 @@ from collections.abc import Iterator
 
 
 def generate_synthetic_sequences(count: int = 100, sequence_length: int = 20, seed: int = 42) -> Iterator[tuple[list[list[float]], int]]:
-    """Yield labelled SYNTHETIC sequences with temporal environmental patterns."""
+    """Yield labelled synthetic sequences for development and model testing only."""
     generator = random.Random(seed)
     for _ in range(count):
         state = [28.0, 7.2, 5.5]

@@ -2,22 +2,21 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.reading_service import reading_service
+from app.readings import reading_store
 
 
 @pytest.fixture(autouse=True)
 def clear_readings():
-    reading_service.clear()
+    reading_store.clear()
     yield
-    reading_service.clear()
+    reading_store.clear()
 
 
 client = TestClient(app)
 
 
-def reading_payload(device_id: str = "ESP32-TILAPIA-001") -> dict:
+def reading_payload() -> dict:
     return {
-        "device_id": device_id,
         "temperature": 28.4,
         "ph": 7.2,
         "dissolved_oxygen": 5.8,
@@ -43,7 +42,7 @@ def test_create_reading_adds_timestamp():
 
     assert response.status_code == 201
     body = response.json()
-    assert body["device_id"] == "ESP32-TILAPIA-001"
+    assert set(body) == {"temperature", "ph", "dissolved_oxygen", "timestamp"}
     assert body["temperature"] == 28.4
     assert len(body["timestamp"]) == 19
     assert body["timestamp"][4] == "-"
@@ -59,11 +58,13 @@ def test_invalid_reading_is_rejected():
     assert response.status_code == 422
 
 
-def test_prediction_reports_missing_model_without_crashing():
+def test_prediction_returns_fused_risk_when_model_is_available():
     response = client.post("/api/predict", json={"readings": [reading_payload()]})
 
-    assert response.status_code == 503
-    assert "train_lstm.py" in response.json()["detail"]
+    assert response.status_code == 200
+    body = response.json()
+    assert {"lstm_probability", "bocpd_probability", "risk_score"} <= body.keys()
+    assert 0 <= body["risk_score"] <= 1
 
 
 def test_latest_reading_returns_404_until_device_submits():
@@ -71,48 +72,27 @@ def test_latest_reading_returns_404_until_device_submits():
     assert missing.status_code == 404
 
     client.post("/api/readings", json=reading_payload())
-    response = client.get("/api/readings/latest", params={"device_id": "ESP32-TILAPIA-001"})
+    response = client.get("/api/readings/latest")
 
     assert response.status_code == 200
-    assert response.json()["device_id"] == "ESP32-TILAPIA-001"
+    assert response.json()["temperature"] == 28.4
 
 
-def test_readings_can_be_filtered_and_limited():
-    client.post("/api/readings", json=reading_payload("device-a"))
-    client.post("/api/readings", json=reading_payload("device-b"))
-    client.post("/api/readings", json=reading_payload("device-a"))
+def test_readings_are_newest_first_and_limited():
+    client.post("/api/readings", json=reading_payload())
+    client.post("/api/readings", json={**reading_payload(), "temperature": 29.0})
+    client.post("/api/readings", json={**reading_payload(), "temperature": 30.0})
 
-    response = client.get("/api/readings", params={"device_id": "device-a", "limit": 1})
+    response = client.get("/api/readings", params={"limit": 1})
 
     assert response.status_code == 200
     assert len(response.json()) == 1
-    assert response.json()[0]["device_id"] == "device-a"
+    assert response.json()[0]["temperature"] == 30.0
 
 
-def test_devices_returns_last_seen_devices():
-    client.post("/api/readings", json=reading_payload("device-a"))
-    client.post("/api/readings", json=reading_payload("device-b"))
+def test_removed_routes_are_not_available():
+    paths = client.get("/openapi.json").json()["paths"]
 
-    response = client.get("/api/devices")
-
-    assert response.status_code == 200
-    assert {device["device_id"] for device in response.json()} == {"device-a", "device-b"}
-    assert all(device["last_seen"] for device in response.json())
-
-
-def test_mock_generate_returns_and_stores_reading():
-    response = client.post("/api/mock/generate")
-
-    assert response.status_code == 201
-    assert response.json()["device_id"] == "ESP32-TILAPIA-001"
-    assert client.get("/api/readings").json()
-
-
-def test_mock_generate_batch_returns_requested_count():
-    response = client.post("/api/mock/generate-batch", params={"count": 5})
-
-    assert response.status_code == 201
-    readings = response.json()
-    assert len(readings) == 5
-    assert all(reading["device_id"] == "ESP32-TILAPIA-001" for reading in readings)
-    assert len(client.get("/api/readings", params={"limit": 10}).json()) == 5
+    assert "/api/devices" not in paths
+    assert "/api/mock/generate" not in paths
+    assert "/api/mock/generate-batch" not in paths

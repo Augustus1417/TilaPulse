@@ -7,9 +7,9 @@ from torch import nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.models.lstm_model import build_lstm_model
-from app.services.preprocessing import SensorPreprocessor
-from app.services.synthetic_data import generate_synthetic_sequences
+from app.lstm import build_lstm_model
+from app.preprocessing import SensorPreprocessor
+from app.synthetic_data import generate_synthetic_sequences
 
 
 def main() -> None:

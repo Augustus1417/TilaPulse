@@ -6,7 +6,6 @@ import 'package:http/http.dart' as http;
 
 class SensorReadingData {
   const SensorReadingData({
-    required this.deviceId,
     required this.temperature,
     required this.ph,
     required this.dissolvedOxygen,
@@ -15,7 +14,6 @@ class SensorReadingData {
 
   factory SensorReadingData.fromJson(Map<String, dynamic> json) {
     return SensorReadingData(
-      deviceId: json['device_id'] as String,
       temperature: (json['temperature'] as num).toDouble(),
       ph: (json['ph'] as num).toDouble(),
       dissolvedOxygen: (json['dissolved_oxygen'] as num).toDouble(),
@@ -23,7 +21,6 @@ class SensorReadingData {
     );
   }
 
-  final String deviceId;
   final double temperature;
   final double ph;
   final double dissolvedOxygen;
@@ -46,12 +43,8 @@ class SensorApi {
     return 'http://localhost:8000';
   }
 
-  Future<SensorReadingData> fetchLatest(String deviceId) async {
-    final response = await _client.get(
-      Uri.parse('$_baseUrl/api/readings/latest').replace(
-        queryParameters: {'device_id': deviceId},
-      ),
-    );
+  Future<SensorReadingData> fetchLatest() async {
+    final response = await _client.get(Uri.parse('$_baseUrl/api/readings/latest'));
 
     if (response.statusCode != 200) {
       throw Exception('Sensor API returned ${response.statusCode}');
@@ -64,4 +57,3 @@ class SensorApi {
 }
 
 final sensorApi = SensorApi();
-const defaultDeviceId = 'ESP32-TILAPIA-001';

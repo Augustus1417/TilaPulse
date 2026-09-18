@@ -5,7 +5,7 @@ FEATURE_NAMES = ("temperature", "ph", "dissolved_oxygen")
 
 
 class SensorPreprocessor:
-    """Convert sensor records into normalized, fixed-length model windows."""
+    """Handle missing values, normalize features, and build fixed-size windows."""
 
     def __init__(
         self,

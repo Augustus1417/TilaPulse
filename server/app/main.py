@@ -1,8 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import devices, mock, predictions, readings
 from app.core.config import settings
+from app.prediction import router as prediction_router
+from app.readings import router as readings_router
 
 
 app = FastAPI(
@@ -19,10 +20,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(readings.router)
-app.include_router(devices.router)
-app.include_router(mock.router)
-app.include_router(predictions.router)
+app.include_router(readings_router)
+app.include_router(prediction_router)
 
 
 @app.get("/", tags=["health"])

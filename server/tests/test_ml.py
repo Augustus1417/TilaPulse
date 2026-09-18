@@ -1,8 +1,8 @@
 import pytest
 
-from app.services.bocpd import BOCPD
-from app.services.preprocessing import SensorPreprocessor
-from app.services.synthetic_data import generate_synthetic_sequences
+from app.bocpd import BOCPD
+from app.preprocessing import SensorPreprocessor
+from app.synthetic_data import generate_synthetic_sequences
 
 
 def test_preprocessor_handles_missing_values_and_fixed_window():
@@ -43,7 +43,7 @@ def test_synthetic_generator_is_reproducible_and_temporal():
 
 def test_lstm_accepts_sequence_of_three_features_and_returns_probability():
     torch = pytest.importorskip("torch")
-    from app.models.lstm_model import build_lstm_model
+    from app.lstm import build_lstm_model
 
     model = build_lstm_model()
     output = model(torch.zeros((2, 4, 3)))
