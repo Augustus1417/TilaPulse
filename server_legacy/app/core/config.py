@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +15,8 @@ class Settings(BaseSettings):
     prediction_beta: float = 0.3
     prediction_window_size: int = 20
     lstm_model_path: str = "models/lstm_model.pt"
+    device_keys: dict[str, str] = Field(default_factory=dict)
+    db_connection_string: str = "sqlite:///./data/tilapulse.db"
 
 
 settings = Settings()

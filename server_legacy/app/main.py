@@ -2,8 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
+from app.db import Base, engine
 from app.prediction import router as prediction_router
-from app.readings import router as readings_router
+from app.readings import devices_router, router as readings_router
 
 
 app = FastAPI(
@@ -15,13 +16,20 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(readings_router)
+app.include_router(devices_router)
 app.include_router(prediction_router)
+
+
+@app.on_event("startup")
+def create_tables() -> None:
+    Base.metadata.create_all(bind=engine)
 
 
 @app.get("/", tags=["health"])
@@ -30,7 +38,7 @@ def api_information() -> dict[str, str]:
         "name": "TilaPulse Sensor API",
         "version": "0.1.0",
         "status": "prototype",
-        "storage": "in-memory",
+        "storage": engine.dialect.name,
     }
 
 

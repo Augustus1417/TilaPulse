@@ -27,6 +27,37 @@ class SensorReadingData {
   final DateTime timestamp;
 }
 
+class PredictionData {
+  const PredictionData({required this.riskScore});
+
+  factory PredictionData.fromJson(Map<String, dynamic> json) {
+    return PredictionData(riskScore: (json['risk_score'] as num).toDouble());
+  }
+
+  final double riskScore;
+}
+
+class DeviceData {
+  const DeviceData({required this.deviceId, this.name, this.lastSeen});
+
+  factory DeviceData.fromJson(Map<String, dynamic> json) {
+    return DeviceData(
+      deviceId: json['device_id'] as String,
+      name: json['name'] as String?,
+      lastSeen: json['last_seen'] as String?,
+    );
+  }
+
+  final String deviceId;
+  final String? name;
+  final String? lastSeen;
+}
+
+class SensorApiException implements Exception {
+  const SensorApiException(this.statusCode);
+  final int statusCode;
+}
+
 class SensorApi {
   SensorApi({http.Client? client, String? baseUrl})
       : _client = client ?? http.Client(),
@@ -34,6 +65,7 @@ class SensorApi {
 
   final http.Client _client;
   final String _baseUrl;
+  static const defaultDeviceId = 'pond-1';
 
   static String get _defaultBaseUrl {
     const configuredUrl = String.fromEnvironment('API_BASE_URL');
@@ -43,16 +75,41 @@ class SensorApi {
     return 'http://localhost:8000';
   }
 
-  Future<SensorReadingData> fetchLatest() async {
-    final response = await _client.get(Uri.parse('$_baseUrl/api/readings/latest'));
+  static const _requestTimeout = Duration(seconds: 8);
+
+  Future<SensorReadingData> fetchLatest(String deviceId) async {
+    final uri = Uri.parse('$_baseUrl/api/readings/latest').replace(
+      queryParameters: {'device_id': deviceId},
+    );
+    final response = await _client.get(uri).timeout(_requestTimeout);
 
     if (response.statusCode != 200) {
-      throw Exception('Sensor API returned ${response.statusCode}');
+      throw SensorApiException(response.statusCode);
     }
 
     return SensorReadingData.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
+  }
+
+  Future<PredictionData> fetchPrediction(String deviceId) async {
+    final response = await _client
+        .post(
+          Uri.parse('$_baseUrl/api/predict'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'device_id': deviceId}),
+        )
+        .timeout(_requestTimeout);
+    if (response.statusCode != 200) throw SensorApiException(response.statusCode);
+    return PredictionData.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<List<DeviceData>> fetchDevices() async {
+    final response = await _client.get(Uri.parse('$_baseUrl/api/devices')).timeout(_requestTimeout);
+    if (response.statusCode != 200) throw SensorApiException(response.statusCode);
+    return (jsonDecode(response.body) as List<dynamic>)
+        .map((item) => DeviceData.fromJson(item as Map<String, dynamic>))
+        .toList();
   }
 }
 

@@ -1,11 +1,15 @@
 from collections.abc import Sequence
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.bocpd import BOCPD
 from app.core.config import settings
+from app.db import get_db
 from app.lstm import load_lstm_model
+from app.models import ReadingModel
 from app.preprocessing import SensorPreprocessor
 from app.schemas import PredictionRequest, PredictionResponse
 
@@ -58,9 +62,22 @@ router = APIRouter(prefix="/api/predict", tags=["predictions"])
 
 
 @router.post("", response_model=PredictionResponse)
-def predict(request: PredictionRequest) -> PredictionResponse:
+def predict(request: PredictionRequest, db: Session = Depends(get_db)) -> PredictionResponse:
+    records = db.scalars(select(ReadingModel).where(ReadingModel.device_id == request.device_id).order_by(ReadingModel.id.asc())).all()
+    if not records:
+        raise HTTPException(status_code=404, detail="No readings found for device")
     try:
-        result = prediction_service.predict([reading.model_dump() for reading in request.readings])
+        result = prediction_service.predict(
+            [
+                {
+                    "device_id": reading.device_id,
+                    "temperature": reading.temperature,
+                    "ph": reading.ph,
+                    "dissolved_oxygen": reading.dissolved_oxygen,
+                }
+                for reading in records
+            ]
+        )
     except (FileNotFoundError, RuntimeError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return PredictionResponse(**result)

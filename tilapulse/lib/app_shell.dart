@@ -1,8 +1,52 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:tilapulse/mock_data.dart';
+import 'package:tilapulse/app_data.dart';
 import 'package:tilapulse/services/sensor_api.dart';
+
+class _DashboardData {
+  const _DashboardData(this.reading, this.prediction);
+  final SensorReadingData reading;
+  final PredictionData prediction;
+}
+
+StatusTone _waterTone(SensorReadingData reading) {
+  if (reading.temperature < 24 ||
+      reading.temperature > 32 ||
+      reading.ph < 6.5 ||
+      reading.ph > 8.5 ||
+      reading.dissolvedOxygen < 5) {
+    return StatusTone.warning;
+  }
+  return StatusTone.normal;
+}
+
+String _errorLabel(Object? error) {
+  if (error is SensorApiException && error.statusCode == 404)
+    return 'No readings have been received for this device yet.';
+  return 'Unable to load live sensor data.';
+}
+
+String _formatReadingTime(DateTime timestamp) {
+  final localTime = timestamp.toLocal();
+  final hour = localTime.hour % 12 == 0 ? 12 : localTime.hour % 12;
+  final minute = localTime.minute.toString().padLeft(2, '0');
+  final period = localTime.hour >= 12 ? 'PM' : 'AM';
+  return '$hour:$minute $period';
+}
+
+class _ApiError extends StatelessWidget {
+  const _ApiError({required this.error});
+  final Object? error;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Text(_errorLabel(error), textAlign: TextAlign.center),
+    ),
+  );
+}
 
 MetricData _liveMetric({
   required String title,
@@ -17,7 +61,7 @@ MetricData _liveMetric({
     unit: unit,
     statusLabel: normal ? 'Normal' : 'Warning',
     trendLabel: 'Live reading',
-    updatedAt: 'Updated ${timestamp.toLocal().toString().substring(11, 16)}',
+    updatedAt: 'Updated ${_formatReadingTime(timestamp)}',
     sparklineValues: const [],
     tone: normal ? StatusTone.normal : StatusTone.warning,
     trendIcon: Icons.sensors,
@@ -55,15 +99,16 @@ class TilapulseApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: brandTeal,
-      brightness: Brightness.light,
-    ).copyWith(
-      primary: brandTeal,
-      secondary: waterBlue,
-      tertiary: farmGreen,
-      surface: appSurface,
-    );
+    final colorScheme =
+        ColorScheme.fromSeed(
+          seedColor: brandTeal,
+          brightness: Brightness.light,
+        ).copyWith(
+          primary: brandTeal,
+          secondary: waterBlue,
+          tertiary: farmGreen,
+          surface: appSurface,
+        );
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
@@ -144,10 +189,7 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: _pages,
-      ),
+      body: IndexedStack(index: _selectedIndex, children: _pages),
       bottomNavigationBar: NavigationBarTheme(
         data: NavigationBarThemeData(
           backgroundColor: appSurface,
@@ -163,13 +205,34 @@ class _AppShellState extends State<AppShell> {
         ),
         child: NavigationBar(
           selectedIndex: _selectedIndex,
-          onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+          onDestinationSelected: (index) =>
+              setState(() => _selectedIndex = index),
           destinations: const [
-            NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
-            NavigationDestination(icon: Icon(Icons.show_chart_outlined), selectedIcon: Icon(Icons.show_chart), label: 'Monitor'),
-            NavigationDestination(icon: Icon(Icons.stacked_line_chart_outlined), selectedIcon: Icon(Icons.stacked_line_chart), label: 'Risk'),
-            NavigationDestination(icon: Icon(Icons.notifications_none), selectedIcon: Icon(Icons.notifications), label: 'Alerts'),
-            NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profile'),
+            NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home),
+              label: 'Home',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.show_chart_outlined),
+              selectedIcon: Icon(Icons.show_chart),
+              label: 'Monitor',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.stacked_line_chart_outlined),
+              selectedIcon: Icon(Icons.stacked_line_chart),
+              label: 'Risk',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.notifications_none),
+              selectedIcon: Icon(Icons.notifications),
+              label: 'Alerts',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.person_outline),
+              selectedIcon: Icon(Icons.person),
+              label: 'Profile',
+            ),
           ],
         ),
       ),
@@ -186,123 +249,221 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late final Future<SensorReadingData> _readingFuture;
+  late Future<_DashboardData> _dashboardFuture;
+  bool _isRefreshing = false;
 
   @override
   void initState() {
     super.initState();
-    _readingFuture = sensorApi.fetchLatest();
+    _dashboardFuture = _loadDashboard();
+  }
+
+  Future<_DashboardData> _loadDashboard() {
+    return Future.wait([
+      sensorApi.fetchLatest(SensorApi.defaultDeviceId),
+      sensorApi.fetchPrediction(SensorApi.defaultDeviceId),
+    ]).then(
+      (values) => _DashboardData(
+        values[0] as SensorReadingData,
+        values[1] as PredictionData,
+      ),
+    );
+  }
+
+  Future<void> _refreshDashboard() async {
+    if (_isRefreshing) return;
+    final nextDashboard = _loadDashboard();
+    setState(() {
+      _dashboardFuture = nextDashboard;
+      _isRefreshing = true;
+    });
+    try {
+      await nextDashboard;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRefreshing = false;
+        });
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final overview = mockOverview;
-
-    return FutureBuilder<SensorReadingData>(
-      future: _readingFuture,
+    return FutureBuilder<_DashboardData>(
+      future: _dashboardFuture,
       builder: (context, snapshot) {
-        final homeMetrics = snapshot.hasData
-            ? _metricsFromReading(snapshot.data!)
-            : overview.homeMetrics;
+        if (snapshot.hasError) return _ApiError(error: snapshot.error);
+        if (!snapshot.hasData)
+          return const Center(child: CircularProgressIndicator());
+        final data = snapshot.data!;
+        final reading = data.reading;
+        final tone = _waterTone(reading);
+        final risk = (data.prediction.riskScore * 100).round().clamp(0, 100);
+        final homeMetrics = _metricsFromReading(reading);
 
         return SafeArea(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          child: RefreshIndicator(
+            onRefresh: _refreshDashboard,
+            child: ListView(
+              padding: EdgeInsets.zero,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
+                // Header
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.waves,
+                                size: 24,
+                                color: brandTeal,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Tilapulse',
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(color: brandTeal),
+                              ),
+                            ],
+                          ),
+                          IconButton(
+                            onPressed: _isRefreshing ? null : _refreshDashboard,
+                            icon: _isRefreshing
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.refresh),
+                            tooltip: 'Refresh readings',
+                            color: brandTeal,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        SensorApi.defaultDeviceId,
+                        style: Theme.of(context).textTheme.headlineLarge,
+                      ),
+                      const SizedBox(height: 6),
+                      StatusIndicator(
+                        label: tone == StatusTone.normal
+                            ? 'Overall Status: Normal'
+                            : 'Overall Status: Check readings',
+                        tone: tone,
+                      ),
+                    ],
+                  ),
+                ),
+                // Risk Score - Hero Section
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: SimpleCard(
+                    child: Column(
                       children: [
-                        const Icon(Icons.waves, size: 24, color: brandTeal),
-                        const SizedBox(width: 8),
                         Text(
-                          'Tilapulse',
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(color: brandTeal),
+                          'Disease Risk Score',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          height: 150,
+                          child: RiskGaugeSimple(
+                            progress: risk / 100,
+                            valueLabel: risk.toString(),
+                            label: risk < 30
+                                ? 'Low Risk'
+                                : risk < 60
+                                ? 'Moderate Risk'
+                                : 'High Risk',
+                            tone: risk < 30
+                                ? StatusTone.normal
+                                : risk < 60
+                                ? StatusTone.warning
+                                : StatusTone.critical,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          tone == StatusTone.normal
+                              ? 'Live readings are within the configured water-quality bands.'
+                              : 'One or more live readings are outside the configured water-quality bands.',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(height: 1.4),
                         ),
                       ],
                     ),
-                    const Icon(Icons.notifications_none, size: 24, color: onSurfaceVariant),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  overview.pondName,
-                  style: Theme.of(context).textTheme.headlineLarge,
-                ),
-                const SizedBox(height: 6),
-                StatusIndicator(label: overview.statusLabel, tone: overview.statusTone),
-              ],
-            ),
-          ),
-          // Risk Score - Hero Section
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SimpleCard(
-              child: Column(
-                children: [
-                  Text(
-                    'Disease Risk Score',
-                    style: Theme.of(context).textTheme.bodyMedium,
                   ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    height: 150,
-                    child: RiskGaugeSimple(
-                      progress: overview.riskScore / 100,
-                      valueLabel: overview.riskScore.toString(),
-                      label: overview.riskLabel,
-                      tone: overview.riskTone,
+                ),
+                const SizedBox(height: 20),
+                // Quick Sensor Summary
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Water Quality',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 12),
+                      ...homeMetrics.map(
+                        (metric) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: CompactMetricCard(metric: metric),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // Top Alert
+                if (tone != StatusTone.normal)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: AlertBannerSimple(
+                      alert: AlertData(
+                        severityLabel: 'Live alert',
+                        timeLabel: 'Now',
+                        title: 'Water quality needs attention.',
+                        description: 'Review the latest sensor values and confirm aeration and water conditions.',
+                        actionLabel: 'Review readings',
+                        primaryActionLabel: 'Open alerts',
+                        tone: tone,
+                        resolved: false,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    overview.summary,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.4),
+                const SizedBox(height: 20),
+                // Recommendation
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: RecommendationCardSimple(
+                    recommendation: RecommendationData(
+                      title: tone == StatusTone.normal
+                          ? 'Conditions are stable'
+                          : 'Review the pond now',
+                      body: tone == StatusTone.normal
+                          ? 'Continue monitoring the live readings for changes.'
+                          : 'Check the live sensor values and take corrective action if the condition persists.',
+                      actionLabel: 'View readings',
+                      tone: tone,
+                    ),
                   ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          // Quick Sensor Summary
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Water Quality', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 12),
-                ...homeMetrics.map((metric) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: CompactMetricCard(metric: metric),
-                )),
+                ),
+                const SizedBox(height: 20),
               ],
             ),
           ),
-          const SizedBox(height: 20),
-          // Top Alert
-          if (overview.recentAlert case AlertData alert)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: AlertBannerSimple(alert: alert),
-            ),
-          const SizedBox(height: 20),
-          // Recommendation
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: RecommendationCardSimple(recommendation: overview.homeRecommendation),
-          ),
-          const SizedBox(height: 20),
-        ],
-      ),
         );
       },
     );
@@ -319,12 +480,31 @@ class MonitoringScreen extends StatefulWidget {
 
 class _MonitoringScreenState extends State<MonitoringScreen> {
   int _selectedPeriodIndex = 0;
-  late final Future<SensorReadingData> _readingFuture;
+  late Future<SensorReadingData> _readingFuture;
+  bool _isRefreshing = false;
 
   @override
   void initState() {
     super.initState();
-    _readingFuture = sensorApi.fetchLatest();
+    _readingFuture = sensorApi.fetchLatest(SensorApi.defaultDeviceId);
+  }
+
+  Future<void> _refreshReading() async {
+    if (_isRefreshing) return;
+    final nextReading = sensorApi.fetchLatest(SensorApi.defaultDeviceId);
+    setState(() {
+      _readingFuture = nextReading;
+      _isRefreshing = true;
+    });
+    try {
+      await nextReading;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRefreshing = false;
+        });
+      }
+    }
   }
 
   @override
@@ -332,73 +512,85 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     return FutureBuilder<SensorReadingData>(
       future: _readingFuture,
       builder: (context, snapshot) {
-        final period = monitoringPeriods[_selectedPeriodIndex];
-        final metrics = snapshot.hasData
-            ? _metricsFromReading(snapshot.data!)
-            : period.metrics;
+        if (snapshot.hasError) return _ApiError(error: snapshot.error);
+        if (!snapshot.hasData)
+          return const Center(child: CircularProgressIndicator());
+        final metrics = _metricsFromReading(snapshot.data!);
 
         return SafeArea(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          child: RefreshIndicator(
+            onRefresh: _refreshReading,
+            child: ListView(
+              padding: EdgeInsets.zero,
               children: [
-                Row(
-                  children: [
-                    const Icon(Icons.waves, size: 24, color: brandTeal),
-                    const SizedBox(width: 8),
-                    Text('Tilapulse', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: brandTeal)),
-                  ],
+                // Header
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.waves, size: 24, color: brandTeal),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Tilapulse',
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(color: brandTeal),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            onPressed: _isRefreshing ? null : _refreshReading,
+                            icon: _isRefreshing
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.refresh),
+                            tooltip: 'Refresh readings',
+                            color: brandTeal,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Water Quality Monitoring',
+                        style: Theme.of(context).textTheme.headlineLarge,
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 16),
-                Text('Water Quality Monitoring', style: Theme.of(context).textTheme.headlineLarge),
+                // Time Period Selector
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: SimplePeriodSelector(
+                    labels: const ['Latest'],
+                    selectedIndex: _selectedPeriodIndex,
+                    onChanged: (index) =>
+                        setState(() => _selectedPeriodIndex = index),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // Sensor Cards
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    children: metrics
+                        .map(
+                          (metric) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: SensorCard(metric: metric),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
               ],
             ),
           ),
-          // Time Period Selector
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SimplePeriodSelector(
-              labels: monitoringPeriods.map((p) => p.label).toList(),
-              selectedIndex: _selectedPeriodIndex,
-              onChanged: (index) => setState(() => _selectedPeriodIndex = index),
-            ),
-          ),
-          const SizedBox(height: 20),
-          // Sensor Cards
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              children: metrics.map((metric) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: SensorCard(metric: metric),
-              )).toList(),
-            ),
-          ),
-          // Trend Chart
-          if (period.chartSeries.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Trend Overview', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 12),
-                  SimpleCard(
-                    child: SizedBox(
-                      height: 140,
-                      child: SimpleTrendChart(series: period.chartSeries),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
         );
       },
     );
@@ -406,148 +598,248 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
 }
 
 // ===== RISK SCREEN =====
-class RiskScreen extends StatelessWidget {
+class RiskScreen extends StatefulWidget {
   const RiskScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final analysis = mockRiskAnalysis;
+  State<RiskScreen> createState() => _RiskScreenState();
+}
 
-    return SafeArea(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+class _RiskScreenState extends State<RiskScreen> {
+  late final Future<PredictionData> _predictionFuture = sensorApi
+      .fetchPrediction(SensorApi.defaultDeviceId);
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<PredictionData>(
+      future: _predictionFuture,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return _ApiError(error: snapshot.error);
+        if (!snapshot.hasData)
+          return const Center(child: CircularProgressIndicator());
+        final score = (snapshot.data!.riskScore * 100).round().clamp(0, 100);
+        final tone = score < 30
+            ? StatusTone.normal
+            : score < 60
+            ? StatusTone.warning
+            : StatusTone.critical;
+
+        return SafeArea(
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.waves, size: 24, color: brandTeal),
-                    const SizedBox(width: 8),
-                    Text('Tilapulse', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: brandTeal)),
+                    Row(
+                      children: [
+                        const Icon(Icons.waves, size: 24, color: brandTeal),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Tilapulse',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(color: brandTeal),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Disease Risk',
+                      style: Theme.of(context).textTheme.headlineLarge,
+                    ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                Text('Disease Risk', style: Theme.of(context).textTheme.headlineLarge),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          // Risk Score Display
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SimpleCard(
-              child: Column(
-                children: [
-                  SizedBox(
-                    height: 170,
-                    child: RiskGaugeSimple(
-                      progress: analysis.riskScore / 100,
-                      valueLabel: analysis.riskScore.toString(),
-                      label: analysis.riskLabel,
-                      tone: analysis.tone,
-                      showPercent: true,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+              ),
+              const SizedBox(height: 12),
+              // Risk Score Display
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: SimpleCard(
+                  child: Column(
                     children: [
-                      const Icon(Icons.trending_up, size: 16, color: onSurfaceVariant),
-                      const SizedBox(width: 6),
-                      Text(analysis.changeLabel, style: Theme.of(context).textTheme.bodyMedium),
+                      SizedBox(
+                        height: 170,
+                        child: RiskGaugeSimple(
+                          progress: score / 100,
+                          valueLabel: score.toString(),
+                          label: score < 30
+                              ? 'Low Risk'
+                              : score < 60
+                              ? 'Moderate Risk'
+                              : 'High Risk',
+                          tone: tone,
+                          showPercent: true,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.trending_up,
+                            size: 16,
+                            color: onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Live prediction for ${SensorApi.defaultDeviceId}',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
                     ],
                   ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          // Explanation
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Why is the risk changing?', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 12),
-                SimpleCard(
-                  child: Text(
-                    analysis.summary,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.5),
-                  ),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 20),
+              // Explanation
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Why is the risk changing?',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    SimpleCard(
+                      child: Text(
+                        score < 30
+                            ? 'The current model output indicates low disease risk.'
+                            : 'The current model output indicates that the pond needs attention.',
+                        style: Theme.of(context).textTheme.bodyLarge
+                            ?.copyWith(height: 1.5),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Recommendations
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Recommendations',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    RecommendationCardSimple(
+                      recommendation: RecommendationData(
+                        title: score < 30
+                            ? 'Continue monitoring'
+                            : 'Review water conditions',
+                        body: score < 30
+                            ? 'Keep collecting readings so the prediction window remains current.'
+                            : 'Check live sensor values and inspect the pond response.',
+                        actionLabel: 'View readings',
+                        tone: tone,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
           ),
-          const SizedBox(height: 20),
-          // Recommendations
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Recommendations', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 12),
-                ...analysis.recommendations.take(2).map((rec) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: RecommendationCardSimple(recommendation: rec),
-                )),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-        ],
-      ),
+        );
+      },
     );
   }
 }
 
 // ===== ALERTS SCREEN =====
-class AlertsScreen extends StatelessWidget {
+class AlertsScreen extends StatefulWidget {
   const AlertsScreen({super.key});
 
   @override
+  State<AlertsScreen> createState() => _AlertsScreenState();
+}
+
+class _AlertsScreenState extends State<AlertsScreen> {
+  late final Future<SensorReadingData> _readingFuture = sensorApi.fetchLatest(
+    SensorApi.defaultDeviceId,
+  );
+
+  @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+    return FutureBuilder<SensorReadingData>(
+      future: _readingFuture,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return _ApiError(error: snapshot.error);
+        if (!snapshot.hasData)
+          return const Center(child: CircularProgressIndicator());
+        final reading = snapshot.data!;
+        final tone = _waterTone(reading);
+        final alerts = tone == StatusTone.normal
+            ? <AlertData>[]
+            : [
+                AlertData(
+                  severityLabel: 'Live alert',
+                  timeLabel: 'Now',
+                  title: 'Water quality needs attention.',
+                  description: 'At least one current sensor value is outside the configured operating band.',
+                  actionLabel: 'Review readings',
+                  primaryActionLabel: 'View device',
+                  tone: tone,
+                  resolved: false,
+                ),
+              ];
+        return SafeArea(
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.waves, size: 24, color: brandTeal),
-                    const SizedBox(width: 8),
-                    Text('Tilapulse', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: brandTeal)),
+                    Row(
+                      children: [
+                        const Icon(Icons.waves, size: 24, color: brandTeal),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Tilapulse',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(color: brandTeal),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Alerts',
+                      style: Theme.of(context).textTheme.headlineLarge,
+                    ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                Text('Alerts', style: Theme.of(context).textTheme.headlineLarge),
-              ],
-            ),
+              ),
+              const SizedBox(height: 16),
+              // Alert List
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  children: alerts
+                      .map(
+                        (alert) => Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: AlertCardSimple(alert: alert),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
           ),
-          const SizedBox(height: 16),
-          // Alert List
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              children: mockAlerts.map((alert) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: AlertCardSimple(alert: alert),
-              )).toList(),
-            ),
-          ),
-          const SizedBox(height: 20),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -558,131 +850,229 @@ class ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final profile = mockProfile;
-
-    return SafeArea(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.waves, size: 24, color: brandTeal),
-                        const SizedBox(width: 8),
-                        Text('Tilapulse', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: brandTeal)),
-                      ],
-                    ),
-                    const Icon(Icons.settings_outlined, size: 24, color: onSurfaceVariant),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text('Profile', style: Theme.of(context).textTheme.headlineLarge),
-              ],
-            ),
+    return FutureBuilder<List<DeviceData>>(
+      future: sensorApi.fetchDevices(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return _ApiError(error: snapshot.error);
+        if (!snapshot.hasData)
+          return const Center(child: CircularProgressIndicator());
+        final device = snapshot.data!
+            .where((item) => item.deviceId == SensorApi.defaultDeviceId)
+            .firstOrNull;
+        final stats = [
+          ProfileStatData(
+            icon: Icons.memory_outlined,
+            value: '${snapshot.data!.length}',
+            label: 'Registered devices',
+            color: brandTeal,
           ),
-          const SizedBox(height: 12),
-          // Operator Card
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SimpleCard(
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 32,
-                    backgroundColor: tealTint,
-                    child: const Icon(Icons.person, size: 28, color: brandTeal),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(profile.operatorName, style: Theme.of(context).textTheme.titleMedium),
-                        const SizedBox(height: 4),
-                        Text(profile.farmName, style: Theme.of(context).textTheme.bodyMedium),
-                        const SizedBox(height: 8),
-                        StatusIndicator(label: profile.syncStatus, tone: profile.syncTone),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          ProfileStatData(
+            icon: Icons.sensors_outlined,
+            value: device == null ? 'Offline' : 'Online',
+            label: 'Selected device',
+            color: device == null ? StatusTone.warning.color : farmGreen,
           ),
-          const SizedBox(height: 20),
-          // Stats Grid
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: GridView.count(
-              shrinkWrap: true,
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              physics: const NeverScrollableScrollPhysics(),
-              childAspectRatio: 1.5,
-              children: profile.stats.map((stat) => SimpleCard(
+        ];
+        final menuItems = [
+          ProfileMenuItemData(
+            icon: Icons.devices_other,
+            title: device?.name ?? SensorApi.defaultDeviceId,
+            subtitle: device?.lastSeen == null
+                ? 'No readings received yet'
+                : 'Last seen ${device!.lastSeen}',
+          ),
+          const ProfileMenuItemData(
+            icon: Icons.cloud_done_outlined,
+            title: 'Data source',
+            subtitle: 'Live readings from the sensor API',
+          ),
+        ];
+        return SafeArea(
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Icon(stat.icon, size: 20, color: stat.color),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(stat.value, style: Theme.of(context).textTheme.titleMedium),
-                        const SizedBox(height: 4),
-                        Text(stat.label, style: Theme.of(context).textTheme.bodyMedium),
+                        Row(
+                          children: [
+                            const Icon(Icons.waves, size: 24, color: brandTeal),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Tilapulse',
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(color: brandTeal),
+                            ),
+                          ],
+                        ),
+                        const Icon(
+                          Icons.settings_outlined,
+                          size: 24,
+                          color: onSurfaceVariant,
+                        ),
                       ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Profile',
+                      style: Theme.of(context).textTheme.headlineLarge,
                     ),
                   ],
                 ),
-              )).toList(),
-            ),
-          ),
-          const SizedBox(height: 20),
-          // Menu Items
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Settings', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 12),
-                ...profile.menuItems.map((item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: SimpleCard(
-                    child: Row(
-                      children: [
-                        Icon(item.icon, size: 20, color: brandTeal),
-                        const SizedBox(width: 12),
-                        Expanded(
+              ),
+              const SizedBox(height: 12),
+              // Operator Card
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: SimpleCard(
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 32,
+                        backgroundColor: tealTint,
+                        child: const Icon(
+                          Icons.person,
+                          size: 28,
+                          color: brandTeal,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              device?.name ?? SensorApi.defaultDeviceId,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Device registration',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            StatusIndicator(
+                              label: device == null
+                                  ? 'No device data'
+                                  : 'Connected to API',
+                              tone: device == null
+                                  ? StatusTone.warning
+                                  : StatusTone.normal,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Stats Grid
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: GridView.count(
+                  shrinkWrap: true,
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  physics: const NeverScrollableScrollPhysics(),
+                  childAspectRatio: 1.5,
+                  children: stats
+                      .map(
+                        (stat) => SimpleCard(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(item.title, style: Theme.of(context).textTheme.titleSmall),
-                              Text(item.subtitle, style: Theme.of(context).textTheme.bodyMedium),
+                              Icon(stat.icon, size: 20, color: stat.color),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    stat.value,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    stat.label,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium,
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
                         ),
-                        const Icon(Icons.chevron_right, size: 20, color: onSurfaceVariant),
-                      ],
+                      )
+                      .toList(),
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Menu Items
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Settings',
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
-                  ),
-                )),
-              ],
-            ),
+                    const SizedBox(height: 12),
+                    ...menuItems.map(
+                      (item) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: SimpleCard(
+                          child: Row(
+                            children: [
+                              Icon(item.icon, size: 20, color: brandTeal),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.title,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall,
+                                    ),
+                                    Text(
+                                      item.subtitle,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.chevron_right,
+                                size: 20,
+                                color: onSurfaceVariant,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
           ),
-          const SizedBox(height: 20),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -703,10 +1093,7 @@ class SimpleCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: outlineVariant.withValues(alpha: 0.4)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: child,
-      ),
+      child: Padding(padding: const EdgeInsets.all(16), child: child),
     );
   }
 }
@@ -726,15 +1113,13 @@ class StatusIndicator extends StatelessWidget {
         Container(
           width: 10,
           height: 10,
-          decoration: BoxDecoration(
-            color: tone.color,
-            shape: BoxShape.circle,
-          ),
+          decoration: BoxDecoration(color: tone.color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 8),
         Text(
           label,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: onSurfaceVariant),
+          style: Theme.of(context).textTheme.bodyMedium
+              ?.copyWith(color: onSurfaceVariant),
         ),
       ],
     );
@@ -775,10 +1160,10 @@ class RiskGaugeSimple extends StatelessWidget {
                   Text(
                     valueLabel,
                     style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                          fontSize: 48,
-                          fontWeight: FontWeight.w800,
-                          color: onSurface,
-                        ),
+                      fontSize: 48,
+                      fontWeight: FontWeight.w800,
+                      color: onSurface,
+                    ),
                   ),
                   Text(
                     showPercent ? '%' : '/100',
@@ -798,7 +1183,8 @@ class RiskGaugeSimple extends StatelessWidget {
           ),
           child: Text(
             label,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(color: tone.color),
+            style: Theme.of(context).textTheme.labelLarge
+                ?.copyWith(color: tone.color),
           ),
         ),
       ],
@@ -832,7 +1218,13 @@ class RiskGaugePainterSimple extends CustomPainter {
       ..color = tone.color;
 
     canvas.drawArc(rect, math.pi, -math.pi, false, background);
-    canvas.drawArc(rect, math.pi, -math.pi * progress.clamp(0.0, 1.0), false, foreground);
+    canvas.drawArc(
+      rect,
+      math.pi,
+      -math.pi * progress.clamp(0.0, 1.0),
+      false,
+      foreground,
+    );
   }
 
   @override
@@ -863,7 +1255,8 @@ class CompactMetricCard extends StatelessWidget {
                 const SizedBox(height: 10),
                 RichText(
                   text: TextSpan(
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontSize: 28),
+                    style: Theme.of(context).textTheme.headlineMedium
+                        ?.copyWith(fontSize: 28),
                     children: [
                       TextSpan(text: metric.value),
                       if (metric.unit.isNotEmpty)
@@ -881,17 +1274,18 @@ class CompactMetricCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: metric.tone.background,
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   metric.statusLabel,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontSize: 11,
-                        color: metric.tone.color,
-                      ),
+                  style: Theme.of(context).textTheme.labelLarge
+                      ?.copyWith(fontSize: 11, color: metric.tone.color),
                 ),
               ),
               const SizedBox(height: 8),
@@ -902,10 +1296,8 @@ class CompactMetricCard extends StatelessWidget {
                   const SizedBox(width: 4),
                   Text(
                     metric.trendLabel,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: metric.tone.color,
-                          fontSize: 12,
-                        ),
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(color: metric.tone.color, fontSize: 12),
                   ),
                 ],
               ),
@@ -934,17 +1326,18 @@ class SensorCard extends StatelessWidget {
             children: [
               Text(metric.title, style: Theme.of(context).textTheme.bodyMedium),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: metric.tone.background,
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   metric.statusLabel,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontSize: 11,
-                        color: metric.tone.color,
-                      ),
+                  style: Theme.of(context).textTheme.labelLarge
+                      ?.copyWith(fontSize: 11, color: metric.tone.color),
                 ),
               ),
             ],
@@ -952,7 +1345,8 @@ class SensorCard extends StatelessWidget {
           const SizedBox(height: 12),
           RichText(
             text: TextSpan(
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontSize: 28),
+              style: Theme.of(context).textTheme.headlineMedium
+                  ?.copyWith(fontSize: 28),
               children: [
                 TextSpan(text: metric.value),
                 if (metric.unit.isNotEmpty)
@@ -970,12 +1364,14 @@ class SensorCard extends StatelessWidget {
               const SizedBox(width: 6),
               Text(
                 metric.trendLabel,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: metric.tone.color),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(color: metric.tone.color),
               ),
               const Spacer(),
               Text(
                 metric.updatedAt,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 11),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(fontSize: 11),
               ),
             ],
           ),
@@ -1023,9 +1419,9 @@ class SimplePeriodSelector extends StatelessWidget {
                   child: Text(
                     labels[index],
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: selected ? Colors.white : onSurfaceVariant,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      color: selected ? Colors.white : onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
@@ -1114,11 +1510,7 @@ class AlertBannerSimple extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            alert.tone.icon,
-            size: 20,
-            color: alert.tone.color,
-          ),
+          Icon(alert.tone.icon, size: 20, color: alert.tone.color),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -1127,9 +1519,9 @@ class AlertBannerSimple extends StatelessWidget {
                 Text(
                   alert.title,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: alert.tone.color,
-                      ),
+                    fontWeight: FontWeight.w600,
+                    color: alert.tone.color,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -1141,7 +1533,8 @@ class AlertBannerSimple extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   alert.timeLabel,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 11),
+                  style: Theme.of(context).textTheme.bodyMedium
+                      ?.copyWith(fontSize: 11),
                 ),
               ],
             ),
@@ -1175,9 +1568,8 @@ class RecommendationCardSimple extends StatelessWidget {
               Expanded(
                 child: Text(
                   recommendation.title,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                  style: Theme.of(context).textTheme.bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w600),
                 ),
               ),
             ],
@@ -1185,7 +1577,8 @@ class RecommendationCardSimple extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             recommendation.body,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.4),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(height: 1.4),
           ),
           const SizedBox(height: 12),
           Align(
@@ -1194,7 +1587,10 @@ class RecommendationCardSimple extends StatelessWidget {
               style: FilledButton.styleFrom(
                 backgroundColor: recommendation.tone.color,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
               ),
               onPressed: () {},
               child: Text(recommendation.actionLabel),
@@ -1226,9 +1622,11 @@ class AlertCardSimple extends StatelessWidget {
                 child: Text(
                   alert.title,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: alert.tone.color,
-                        decoration: alert.resolved ? TextDecoration.lineThrough : null,
-                      ),
+                    color: alert.tone.color,
+                    decoration: alert.resolved
+                        ? TextDecoration.lineThrough
+                        : null,
+                  ),
                 ),
               ),
             ],
@@ -1236,7 +1634,8 @@ class AlertCardSimple extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             alert.description,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.4),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(height: 1.4),
           ),
           const SizedBox(height: 10),
           Container(
@@ -1249,9 +1648,9 @@ class AlertCardSimple extends StatelessWidget {
             child: Text(
               'Action: ${alert.actionLabel}',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: alert.tone.color,
-                    fontWeight: FontWeight.w600,
-                  ),
+                color: alert.tone.color,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           const SizedBox(height: 10),
@@ -1260,20 +1659,22 @@ class AlertCardSimple extends StatelessWidget {
             children: [
               Text(
                 alert.timeLabel,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 11),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(fontSize: 11),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: alert.tone.background,
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   alert.severityLabel,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontSize: 11,
-                        color: alert.tone.color,
-                      ),
+                  style: Theme.of(context).textTheme.labelLarge
+                      ?.copyWith(fontSize: 11, color: alert.tone.color),
                 ),
               ),
             ],
@@ -1283,5 +1684,3 @@ class AlertCardSimple extends StatelessWidget {
     );
   }
 }
-
-
