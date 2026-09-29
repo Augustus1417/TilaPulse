@@ -10,7 +10,7 @@ const char *WIFI_SSID = "SKYWORTH_AX_A2BB";
 const char *WIFI_PASSWORD = "082303146";
 const char *API_URL = "http://192.168.18.49:8000/api/readings";
 const char *DEVICE_ID = "pond-1";
-const char *DEVICE_KEY = "tp_pond1_dev_7f3c91a2d84e4b6f";
+const char *DEVICE_KEY = "stringst";
 
 // ==========================================
 // 📌 PIN CONFIGURATIONS
