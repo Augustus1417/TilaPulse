@@ -2,12 +2,23 @@
 #include <DallasTemperature.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiManager.h>   // https://github.com/tzapu/WiFiManager - install via Library Manager
+#include <Preferences.h>
 
 // ==========================================
 // 🌐 NETWORK CONFIGURATION
 // ==========================================
-const char *WIFI_SSID = "SKYWORTH_AX_A2BB";
-const char *WIFI_PASSWORD = "082303146";
+// WiFi credentials are no longer hardcoded. On first boot (or if saved
+// credentials fail), the ESP32 opens its own setup access point named
+// below. Connect a phone/laptop to it, a captive portal page will pop up
+// automatically letting you pick your real WiFi network and enter its
+// password. WiFiManager saves that to flash so this only needs to happen
+// once per device (or after a reset - see resetWiFiSettings()).
+const char *SETUP_AP_NAME = "TilaPulse-Setup";
+// Optional: give the setup AP a password too, so a random passerby can't
+// open your device's config portal. Leave as "" for an open setup AP.
+const char *SETUP_AP_PASSWORD = "";
+
 const char *API_URL = "http://192.168.18.49:8000/api/readings";
 const char *DEVICE_ID = "pond-1";
 const char *DEVICE_KEY = "stringst";
@@ -18,6 +29,9 @@ const char *DEVICE_KEY = "stringst";
 #define DO_PIN    35       // Analog Pin for Dissolved Oxygen (D35)
 #define PH_PIN    34       // Analog Pin for pH Sensor (D34)
 #define ONE_WIRE_BUS 4     // Digital Pin for DS18B20 Temp Sensor (D4)
+#define WIFI_RESET_PIN 0   // Hold this pin LOW at boot to wipe saved WiFi
+                           // credentials and re-open the setup portal.
+                           // On most ESP32 dev boards this is the "BOOT" button.
 
 // ==========================================
 // 🛠️ CALIBRATION VALUES
@@ -35,6 +49,7 @@ float phAcidVoltage    = 2032.0; // Voltage at pH 4.0 (mV)
 // Initialize OneWire and DallasTemperature instances
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature tempSensor(&oneWire);
+WiFiManager wm;
 
 // DO Saturation Table (mg/L vs Temperature °C) from 0°C to 40°C
 const uint16_t DO_Table[] = {
@@ -44,22 +59,48 @@ const uint16_t DO_Table[] = {
     6744,  6596,  6453,  6314,  6180,  6050,  5923,  5801,  5682,  5567, 5456
 };
 
-void connectToWiFi() {
-    if (WiFi.status() == WL_CONNECTED) return;
+// ==========================================
+// 📶 WIFI PROVISIONING
+// ==========================================
+void resetWiFiSettingsIfRequested() {
+    pinMode(WIFI_RESET_PIN, INPUT_PULLUP);
+    delay(50); // let the pin settle
+    if (digitalRead(WIFI_RESET_PIN) == LOW) {
+        Serial.println("[WiFi] Reset pin held LOW at boot - erasing saved WiFi credentials.");
+        wm.resetSettings();
+    }
+}
 
-    Serial.print("Connecting to Wi-Fi");
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    for (uint8_t attempt = 0; attempt < 20 && WiFi.status() != WL_CONNECTED; attempt++) {
-        delay(500);
-        Serial.print(".");
+void connectToWiFi() {
+    // Optional visual/serial feedback while the config portal is open.
+    wm.setAPCallback([](WiFiManager *manager) {
+        Serial.println("==================================================");
+        Serial.print("[WiFi] No saved network found. Setup AP started: ");
+        Serial.println(SETUP_AP_NAME);
+        Serial.println("[WiFi] Connect a phone to that WiFi network, a setup");
+        Serial.println("[WiFi] page should open automatically to configure it.");
+        Serial.println("==================================================");
+    });
+
+    // How long the setup portal stays open before giving up and retrying
+    // later (keeps the device from being stuck forever with no sensors
+    // reporting if nobody configures it right away).
+    wm.setConfigPortalTimeout(180); // 3 minutes
+
+    bool connected;
+    if (strlen(SETUP_AP_PASSWORD) > 0) {
+        connected = wm.autoConnect(SETUP_AP_NAME, SETUP_AP_PASSWORD);
+    } else {
+        connected = wm.autoConnect(SETUP_AP_NAME);
     }
 
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.println();
-        Serial.print("Wi-Fi connected. ESP32 IP: ");
+    if (connected) {
+        Serial.print("[WiFi] Connected. ESP32 IP: ");
         Serial.println(WiFi.localIP());
     } else {
-        Serial.println(" failed");
+        Serial.println("[WiFi] Setup portal timed out with no connection. Restarting to retry...");
+        delay(1000);
+        ESP.restart();
     }
 }
 
@@ -95,26 +136,38 @@ void postReading(float currentTemperature, float phValue, float doValue) {
 void setup() {
     Serial.begin(115200); // Communication speed limit to laptop
     delay(1000);
-    
+
     // Configure Analog Pins for ESP32
     pinMode(DO_PIN, ANALOG);
     pinMode(PH_PIN, ANALOG);
     analogReadResolution(12);
-    
+
     // Initialize the DS18B20 Temp Sensor
     tempSensor.begin();
+
+    resetWiFiSettingsIfRequested();
     connectToWiFi();
-    
+
     Serial.println("--- All 3 Sensors Initialized (DS18B20 Active) ---");
 }
 
 void loop() {
+    // If WiFi drops mid-operation (router reboot, out of range, etc.),
+    // try to reconnect using the already-saved credentials rather than
+    // re-opening the setup portal - the portal should only appear when
+    // there are NO saved credentials at all, or resetWiFiSettings() ran.
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[WiFi] Connection lost, attempting to reconnect...");
+        WiFi.reconnect();
+        delay(2000);
+    }
+
     // ----------------------------------------------------
     // 1. READ DIGITAL TEMPERATURE SENSOR (DS18B20)
     // ----------------------------------------------------
     tempSensor.requestTemperatures(); // Tell sensor to calculate a reading
     float currentTemperature = tempSensor.getTempCByIndex(0); // Fetch temperature in Celsius
-    
+
     // Error Check: If sensor is physically unplugged or broken, it returns -127.0
     if (currentTemperature == DEVICE_DISCONNECTED_C) {
         Serial.println("[ERROR] DS18B20 Sensor Not Found! Using 25.0C Fallback.");
@@ -126,13 +179,13 @@ void loop() {
     // ----------------------------------------------------
     uint32_t rawDO = analogRead(DO_PIN);
     float voltageDO = (float)rawDO * VREF / ADC_RES;
-    
+
     // Use the dynamic live temperature to find the oxygen baseline step in array
     int doIndex = (int)round(currentTemperature);
     if (doIndex < 0) doIndex = 0;
     if (doIndex > 40) doIndex = 40; // Prevent exceeding array boundary limit
     float maxSaturationDO = (float)DO_Table[doIndex] / 1000.0;
-    
+
     // Calculate accurate dynamic DO (mg/L) using the real-time temp
     float doValue = voltageDO * maxSaturationDO / cal1VoltageDO;
 
@@ -141,7 +194,7 @@ void loop() {
     // ----------------------------------------------------
     uint32_t rawPH = analogRead(PH_PIN);
     float voltagePH = (float)rawPH * VREF / ADC_RES;
-    
+
     // Calculate pH using two-point slope mapping (Linear Interpolation)
     float slope = (7.0 - 4.0) / (phNeutralVoltage - phAcidVoltage);
     float phValue = 7.0 + (voltagePH - phNeutralVoltage) * slope;
