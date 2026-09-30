@@ -178,12 +178,15 @@ class PageHeader extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Icon(Icons.waves, size: 24, color: brandTeal),
+            const Icon(Icons.waves, size: 34, color: brandTeal),
             const SizedBox(width: 8),
             Text(
-              'Tilapulse',
-              style: Theme.of(context).textTheme.titleLarge
-                  ?.copyWith(color: brandTeal),
+              'TilaPulse',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                color: brandTeal,
+                fontSize: 25,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             const Spacer(),
             if (onRefresh != null)
@@ -209,35 +212,52 @@ class DeviceSwitcher extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<DeviceState>();
     const connectValue = '__connect_device__';
-    return DropdownButtonFormField<String>(
-      initialValue: state.selected?.deviceId,
-      decoration: const InputDecoration(
-        labelText: 'Selected pond',
-        prefixIcon: Icon(Icons.devices_other),
-        border: OutlineInputBorder(),
-      ),
-      items: [
-        ...state.devices.map(
-          (device) => DropdownMenuItem(
-            value: device.deviceId,
-            child: Text(device.name, overflow: TextOverflow.ellipsis),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final itemWidth = constraints.maxWidth > 48
+            ? constraints.maxWidth - 48
+            : constraints.maxWidth;
+        return DropdownButtonFormField<String>(
+          initialValue: state.selected?.deviceId,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Selected device',
+            prefixIcon: Icon(Icons.devices_other),
+            border: OutlineInputBorder(),
           ),
-        ),
-        const DropdownMenuItem(
-          value: connectValue,
-          child: Text('+ Connect a device'),
-        ),
-      ],
-      onChanged: (id) {
-        if (id == connectValue) {
-          Navigator.of(
-            context,
-          ).push(MaterialPageRoute(builder: (_) => const ConnectDevicePage()));
-        } else if (id != null) {
-          state.select(
-            state.devices.firstWhere((device) => device.deviceId == id),
-          );
-        }
+          items: [
+            ...state.devices.map(
+              (device) => DropdownMenuItem(
+                value: device.deviceId,
+                child: SizedBox(
+                  width: itemWidth,
+                  child: Text(device.name, overflow: TextOverflow.ellipsis),
+                ),
+              ),
+            ),
+            DropdownMenuItem(
+              value: connectValue,
+              child: SizedBox(
+                width: itemWidth,
+                child: const Text(
+                  '+ Connect a device',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ],
+          onChanged: (id) {
+            if (id == connectValue) {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ConnectDevicePage()),
+              );
+            } else if (id != null) {
+              state.select(
+                state.devices.firstWhere((device) => device.deviceId == id),
+              );
+            }
+          },
+        );
       },
     );
   }

@@ -16,6 +16,14 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   Future<(Reading, RiskPrediction)>? _future;
   String? _deviceId;
+
+  void _refresh() {
+    setState(() {
+      _deviceId = null;
+      _sync(context.read<DeviceState>().selected?.deviceId);
+    });
+  }
+
   void _sync(String? id) {
     if (id != null && id != _deviceId) {
       _deviceId = id;
@@ -34,8 +42,7 @@ class _HomePageState extends State<HomePage> {
     if (state.devices.isEmpty)
       return const EmptyState(
         title: 'No devices connected',
-        body:
-            'Open Settings to connect a device and start receiving readings.',
+        body: 'Open Settings to connect a device and start receiving readings.',
       );
     return FutureBuilder<(Reading, RiskPrediction)>(
       future: _future,
@@ -53,10 +60,7 @@ class _HomePageState extends State<HomePage> {
             : StatusTone.critical;
         return RefreshIndicator(
           onRefresh: () async {
-            setState(() {
-              _deviceId = null;
-              _sync(state.selected?.deviceId);
-            });
+            _refresh();
             await _future;
           },
           child: ListView(
