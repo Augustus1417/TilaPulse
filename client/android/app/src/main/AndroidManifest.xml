@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- If an open-WiFi-settings helper is added later, it may also need
+         android.permission.ACCESS_WIFI_STATE here. iOS will likely need an
+         App Transport Security exception in Info.plist for the local HTTP
+         WebView URL at 192.168.4.1. -->
     <application
         android:label="client"
         android:name="${applicationName}"
