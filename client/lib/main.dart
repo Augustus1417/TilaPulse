@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:client/pages/alerts_page.dart';
+import 'package:client/pages/connect_device_page.dart';
 import 'package:client/pages/home_page.dart';
 import 'package:client/pages/monitor_page.dart';
 import 'package:client/pages/risk_page.dart';
@@ -8,17 +9,30 @@ import 'package:client/pages/settings_page.dart';
 import 'package:client/state/device_state.dart';
 import 'package:client/widgets/design_system.dart';
 
-void main() => runApp(
-  ChangeNotifierProvider(
-    create: (_) => DeviceState()..load(),
-    child: const TilaPulseApp(),
-  ),
-);
+final appNavigatorKey = GlobalKey<NavigatorState>();
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final deviceState = DeviceState();
+  await deviceState.load();
+  deviceState.onReconnectRequired = () {
+    appNavigatorKey.currentState?.push(
+      MaterialPageRoute(builder: (_) => const ConnectDevicePage()),
+    );
+  };
+  runApp(
+    ChangeNotifierProvider.value(
+      value: deviceState,
+      child: const TilaPulseApp(),
+    ),
+  );
+}
 
 class TilaPulseApp extends StatelessWidget {
   const TilaPulseApp({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
+    navigatorKey: appNavigatorKey,
     debugShowCheckedModeBanner: false,
     title: 'Tilapulse',
     theme: ThemeData(

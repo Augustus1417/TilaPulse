@@ -33,9 +33,9 @@ class _HomePageState extends State<HomePage> {
     if (state.loading) return const Center(child: CircularProgressIndicator());
     if (state.devices.isEmpty)
       return const EmptyState(
-        title: 'No ponds registered',
+        title: 'No devices connected',
         body:
-            'Open Settings to register a device and start receiving readings.',
+            'Open Settings to connect a device and start receiving readings.',
       );
     return FutureBuilder<(Reading, RiskPrediction)>(
       future: _future,

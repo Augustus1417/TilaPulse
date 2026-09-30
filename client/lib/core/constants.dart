@@ -3,10 +3,6 @@ const apiBaseUrl = String.fromEnvironment(
   defaultValue: 'http://192.168.18.49:8000',
 );
 
-// Replace this value for the deployed admin console build. Normal GET and
-// prediction requests never send this credential.
-const adminKey = String.fromEnvironment('ADMIN_KEY', defaultValue: 'change-me');
-
 String get resolvedApiBaseUrl {
   return apiBaseUrl;
 }

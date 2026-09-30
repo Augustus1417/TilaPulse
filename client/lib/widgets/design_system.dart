@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:client/state/device_state.dart';
+import 'package:client/pages/connect_device_page.dart';
 
 const brandTeal = Color(0xFF006666);
 const waterBlue = Color(0xFF0099CC);
@@ -207,6 +208,7 @@ class DeviceSwitcher extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<DeviceState>();
+    const connectValue = '__connect_device__';
     return DropdownButtonFormField<String>(
       initialValue: state.selected?.deviceId,
       decoration: const InputDecoration(
@@ -214,19 +216,28 @@ class DeviceSwitcher extends StatelessWidget {
         prefixIcon: Icon(Icons.devices_other),
         border: OutlineInputBorder(),
       ),
-      items: state.devices
-          .map(
-            (device) => DropdownMenuItem(
-              value: device.deviceId,
-              child: Text(device.name, overflow: TextOverflow.ellipsis),
-            ),
-          )
-          .toList(),
+      items: [
+        ...state.devices.map(
+          (device) => DropdownMenuItem(
+            value: device.deviceId,
+            child: Text(device.name, overflow: TextOverflow.ellipsis),
+          ),
+        ),
+        const DropdownMenuItem(
+          value: connectValue,
+          child: Text('+ Connect a device'),
+        ),
+      ],
       onChanged: (id) {
-        if (id != null)
+        if (id == connectValue) {
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const ConnectDevicePage()));
+        } else if (id != null) {
           state.select(
             state.devices.firstWhere((device) => device.deviceId == id),
           );
+        }
       },
     );
   }

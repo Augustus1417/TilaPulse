@@ -29,8 +29,8 @@ class _RiskPageState extends State<RiskPage> {
     if (state.loading) return const Center(child: CircularProgressIndicator());
     if (state.devices.isEmpty)
       return const EmptyState(
-        title: 'No ponds registered',
-        body: 'Open Settings to register a device first.',
+        title: 'No devices connected',
+        body: 'Open Settings to connect a device first.',
       );
     return FutureBuilder<RiskPrediction>(
       future: _future,

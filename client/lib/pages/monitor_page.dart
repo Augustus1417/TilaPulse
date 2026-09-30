@@ -30,8 +30,8 @@ class _MonitorPageState extends State<MonitorPage> {
     if (state.loading) return const Center(child: CircularProgressIndicator());
     if (state.devices.isEmpty)
       return const EmptyState(
-        title: 'No ponds registered',
-        body: 'Open Settings to register a device and start monitoring.',
+        title: 'No devices connected',
+        body: 'Open Settings to connect a device and start monitoring.',
       );
     return FutureBuilder<List<Reading>>(
       future: _future,
