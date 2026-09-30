@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import verify_device_key
+from app.core.security import verify_ingestion_device_key, verify_device_session
 from app.db import get_db
 from app.models import DeviceModel, ReadingModel
 from app.schemas import ReadingIn, ReadingOut
@@ -38,7 +38,7 @@ def create_reading(
     device = db.get(DeviceModel, payload.device_id)
     if device is None:
         raise HTTPException(status_code=404, detail="Device is not registered")
-    verify_device_key(device.device_key, x_device_key)
+    verify_ingestion_device_key(device.device_key_hash, x_device_key)
 
     timestamp = now_local()
     reading = ReadingModel(
@@ -59,8 +59,11 @@ def create_reading(
 def list_readings(
     device_id: str = Query(min_length=1),
     limit: int = Query(default=100, ge=1, le=1000),
+    session_device_id: str = Depends(verify_device_session),
     db: Session = Depends(get_db),
 ) -> list[ReadingOut]:
+    if device_id != session_device_id:
+        raise HTTPException(status_code=403, detail="Session is not authorized for this device")
     readings = db.scalars(
         select(ReadingModel)
         .where(ReadingModel.device_id == device_id)
@@ -71,7 +74,13 @@ def list_readings(
 
 
 @router.get("/latest", response_model=ReadingOut)
-def latest_reading(device_id: str = Query(min_length=1), db: Session = Depends(get_db)) -> ReadingOut:
+def latest_reading(
+    device_id: str = Query(min_length=1),
+    session_device_id: str = Depends(verify_device_session),
+    db: Session = Depends(get_db),
+) -> ReadingOut:
+    if device_id != session_device_id:
+        raise HTTPException(status_code=403, detail="Session is not authorized for this device")
     reading = db.scalar(
         select(ReadingModel)
         .where(ReadingModel.device_id == device_id)

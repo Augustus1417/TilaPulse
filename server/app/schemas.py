@@ -30,7 +30,23 @@ class DeviceOut(BaseModel):
 
 
 class DeviceAdminOut(DeviceOut):
+    pass
+
+
+class DeviceRegistrationOut(DeviceOut):
     device_key: str
+    warning: str = "This key is shown once and is non-retrievable afterward."
+
+
+class DeviceConnectIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    device_id: str = Field(min_length=1, max_length=120)
+    device_key: str = Field(min_length=1, max_length=200)
+
+
+class DeviceConnectOut(BaseModel):
+    token: str
 
 
 class PredictionRequest(BaseModel):

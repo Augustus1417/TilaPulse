@@ -18,11 +18,14 @@ For Render, Railway, or Fly.io, use `uvicorn app.main:app --host 0.0.0.0 --port 
 
 ## Routes
 
-- `POST /api/admin/devices` registers a device. Requires `X-Admin-Key`; accepts `device_id`, `name`, and optional `device_key`. The admin response includes the key, and `GET /api/admin/devices` can retrieve it for this small operations team.
+- `POST /api/admin/devices` registers a device. Requires `X-Admin-Key`; accepts `device_id`, `name`, and optional `device_key`. The response returns the raw key once and marks it non-retrievable afterward. `GET /api/admin/devices` never returns keys or hashes.
 - `GET /api/devices` lists registered devices without keys.
+- `POST /api/devices/connect` accepts `device_id` and `device_key`, then returns an opaque bearer session token. Failed attempts return a generic error and are rate-limited.
+- `DELETE /api/devices/disconnect` revokes the current bearer session.
 - `POST /api/readings` accepts sensor fields and requires `X-Device-Key`. Devices must already be registered.
-- `GET /api/readings?device_id=...&limit=...` and `GET /api/readings/latest?device_id=...` are public.
-- `POST /api/predict` accepts `device_id` and optionally readings. Stored readings are queried only for that device before LSTM/BOCPD fusion.
+- `GET /api/readings?device_id=...&limit=...` and `GET /api/readings/latest?device_id=...` require a bearer token for the same device.
+- `POST /api/predict` accepts `device_id` and optionally readings, and requires a bearer token for the same device. Stored readings are queried only for that device before LSTM/BOCPD fusion.
+- `POST /api/admin/devices/{device_id}/rotate-key` requires `X-Admin-Key`, returns a new raw key once, and immediately revokes every session for that device.
 - `GET /api/health` reports service status and storage dialect.
 
 Timestamps are generated in `Asia/Manila` with `YYYY-MM-DD HH:MM:SS` formatting. The shipped checkpoint is trained on synthetic data and is for development only.

@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.core.security import verify_device_session
 from app.models import DeviceModel, ReadingModel
 from app.schemas import PredictionRequest, PredictionResponse
 
@@ -11,7 +12,14 @@ router = APIRouter(prefix="/api/predict", tags=["predictions"])
 
 
 @router.post("", response_model=PredictionResponse)
-def predict(payload: PredictionRequest, request: Request, db: Session = Depends(get_db)) -> PredictionResponse:
+def predict(
+    payload: PredictionRequest,
+    request: Request,
+    session_device_id: str = Depends(verify_device_session),
+    db: Session = Depends(get_db),
+) -> PredictionResponse:
+    if payload.device_id != session_device_id:
+        raise HTTPException(status_code=403, detail="Session is not authorized for this device")
     if db.get(DeviceModel, payload.device_id) is None:
         raise HTTPException(status_code=404, detail="Device is not registered")
     records = db.scalars(
