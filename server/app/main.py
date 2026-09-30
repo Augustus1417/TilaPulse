@@ -4,7 +4,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
-from app.db import Base, engine
+from app.db import Base, engine, migrate_auth_schema
 from app.prediction import PredictionService
 from app.routers import devices, health, predict, readings
 
@@ -29,6 +29,7 @@ app.include_router(predict.router)
 
 @app.on_event("startup")
 def initialize_application() -> None:
+    migrate_auth_schema()
     Base.metadata.create_all(bind=engine)
     prediction_service = PredictionService(settings.lstm_model_path, settings.prediction_alpha, settings.prediction_beta, settings.prediction_window_size)
     try:
