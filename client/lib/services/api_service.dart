@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:client/core/constants.dart';
+import 'package:client/models/device.dart';
 import 'package:client/models/reading.dart';
 import 'package:client/models/risk_prediction.dart';
 import 'package:client/services/secure_token_storage.dart';
@@ -54,6 +55,10 @@ class ApiService {
     final encodedBody = body == null ? null : jsonEncode(body);
     final response = switch (method) {
       'GET' => await _client.get(uri, headers: headers).timeout(timeout),
+      'PATCH' =>
+        await _client
+            .patch(uri, headers: headers, body: encodedBody)
+            .timeout(timeout),
       'DELETE' => await _client.delete(uri, headers: headers).timeout(timeout),
       _ =>
         await _client
@@ -84,6 +89,21 @@ class ApiService {
 
   Future<List<String>> connectedDeviceIds() =>
       _tokenStorage.connectedDeviceIds();
+
+  Future<List<Device>> fetchDevices() async =>
+      (await _request('GET', '/api/devices') as List<dynamic>)
+          .map((item) => Device.fromJson(item as Map<String, dynamic>))
+          .toList();
+
+  Future<Device> updateReadingState(String deviceId, bool enabled) async =>
+      Device.fromJson(
+        await _request(
+          'PATCH',
+          '/api/devices/$deviceId/reading-state',
+          body: {'enabled': enabled},
+          deviceId: deviceId,
+        ) as Map<String, dynamic>,
+      );
 
   Future<String> connectDevice({
     required String deviceId,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:client/pages/connect_device_page.dart';
@@ -5,8 +7,29 @@ import 'package:client/pages/device_detail_page.dart';
 import 'package:client/state/device_state.dart';
 import 'package:client/widgets/design_system.dart';
 
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      context.read<DeviceState>().refresh();
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
 
   Future<void> _openConnect(BuildContext context) async {
     await Navigator.of(context)
@@ -74,6 +97,15 @@ class SettingsPage extends StatelessWidget {
                               ],
                             ),
                           ),
+                          Icon(
+                            device.online ? Icons.wifi : Icons.wifi_off,
+                            size: 20,
+                            color: device.online
+                                ? farmGreen
+                                : StatusTone.critical.color,
+                            semanticLabel: device.online ? 'Online' : 'Offline',
+                          ),
+                          const SizedBox(width: 8),
                           const Icon(Icons.chevron_right),
                         ],
                       ),

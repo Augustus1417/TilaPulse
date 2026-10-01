@@ -21,23 +21,50 @@ class DeviceState extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      final ids = await _api.connectedDeviceIds();
-      devices = ids
-          .map((id) => Device(deviceId: id, name: id))
-          .toList(growable: false);
-      if (selected == null ||
-          !devices.any((device) => device.deviceId == selected!.deviceId)) {
-        selected = devices.isEmpty ? null : devices.first;
-      } else {
-        selected = devices.firstWhere(
-          (device) => device.deviceId == selected!.deviceId,
-        );
-      }
+      await _loadConnectedDevices();
     } catch (value) {
       error = value;
     } finally {
       loading = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> refresh() async {
+    try {
+      await _loadConnectedDevices();
+      error = null;
+    } catch (value) {
+      error = value;
+    }
+    notifyListeners();
+  }
+
+  Device? deviceForId(String deviceId) =>
+      devices.where((device) => device.deviceId == deviceId).firstOrNull;
+
+  void replaceDevice(Device device) {
+    devices = devices
+        .map((item) => item.deviceId == device.deviceId ? device : item)
+        .toList(growable: false);
+    if (selected?.deviceId == device.deviceId) selected = device;
+    notifyListeners();
+  }
+
+  Future<void> _loadConnectedDevices() async {
+    final ids = await _api.connectedDeviceIds();
+    final remoteDevices = await _api.fetchDevices();
+    final byId = {for (final device in remoteDevices) device.deviceId: device};
+    devices = ids
+        .map((id) => byId[id] ?? Device(deviceId: id, name: id))
+        .toList(growable: false);
+    if (selected == null ||
+        !devices.any((device) => device.deviceId == selected!.deviceId)) {
+      selected = devices.isEmpty ? null : devices.first;
+    } else {
+      selected = devices.firstWhere(
+        (device) => device.deviceId == selected!.deviceId,
+      );
     }
   }
 

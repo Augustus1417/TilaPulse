@@ -21,17 +21,62 @@ class DeviceDetailPage extends StatefulWidget {
 
 class _DeviceDetailPageState extends State<DeviceDetailPage> {
   Future<Reading?>? _readingFuture;
+  late Device _device;
+  Timer? _statusTimer;
+  bool _updatingReadingState = false;
 
   @override
   void initState() {
     super.initState();
+    _device = widget.device;
     _refreshReading();
+    _statusTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      _refreshStatus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _statusTimer?.cancel();
+    super.dispose();
   }
 
   void _refreshReading() {
     setState(() {
       _readingFuture = _loadReading();
     });
+  }
+
+  Future<void> _refreshStatus() async {
+    final state = context.read<DeviceState>();
+    await state.refresh();
+    final updated = state.deviceForId(_device.deviceId);
+    if (mounted && updated != null) setState(() => _device = updated);
+  }
+
+  Future<void> _setReadingEnabled(bool enabled) async {
+    final previous = _device.readingEnabled;
+    setState(() {
+      _device = _device.copyWith(readingEnabled: enabled);
+      _updatingReadingState = true;
+    });
+    try {
+      final updated = await apiService.updateReadingState(
+        _device.deviceId,
+        enabled,
+      );
+      if (!mounted) return;
+      setState(() => _device = updated);
+      context.read<DeviceState>().replaceDevice(updated);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _device = _device.copyWith(readingEnabled: previous));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to update reading state.')),
+      );
+    } finally {
+      if (mounted) setState(() => _updatingReadingState = false);
+    }
   }
 
   Future<Reading?> _loadReading() async {
@@ -45,7 +90,7 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
 
   Future<void> _disconnect() async {
     try {
-      await context.read<DeviceState>().disconnect(widget.device.deviceId);
+      await context.read<DeviceState>().disconnect(_device.deviceId);
       if (mounted) Navigator.of(context).pop();
     } catch (_) {
       if (mounted) {
@@ -59,29 +104,40 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
   Future<void> _configureWifi() async {
     await Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const WifiSetupPage()));
-    if (mounted) _refreshReading();
+    if (mounted) {
+      _refreshReading();
+      _refreshStatus();
+    }
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(widget.device.name)),
+    appBar: AppBar(title: Text(_device.name)),
     body: RefreshIndicator(
       onRefresh: () async {
         _refreshReading();
-        await _readingFuture;
+        await Future.wait([_readingFuture!, _refreshStatus()]);
       },
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text(
-            widget.device.name,
-            style: Theme.of(context).textTheme.headlineMedium,
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _device.name,
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+              ),
+              Icon(
+                _device.online ? Icons.wifi : Icons.wifi_off,
+                color: _device.online ? farmGreen : StatusTone.critical.color,
+                semanticLabel: _device.online ? 'Online' : 'Offline',
+              ),
+            ],
           ),
           const SizedBox(height: 4),
-          Text(
-            widget.device.deviceId,
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
+          Text(_device.deviceId, style: Theme.of(context).textTheme.bodyMedium),
           const SizedBox(height: 18),
           SimpleCard(
             child: Column(
@@ -93,10 +149,33 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  widget.device.lastSeen == null
+                  _device.lastSeen == null
                       ? 'No readings reported yet'
-                      : 'Last seen ${_formatLastSeen(widget.device.lastSeen!)}',
+                      : 'Last seen ${_formatLastSeen(_device.lastSeen!)}',
                   style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          SimpleCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    _device.readingEnabled ? 'Reading enabled' : 'Paused',
+                  ),
+                  subtitle: Text(
+                    _device.online
+                        ? 'Controls whether this device samples readings.'
+                        : 'Device is offline',
+                  ),
+                  value: _device.readingEnabled,
+                  onChanged: _device.online && !_updatingReadingState
+                      ? _setReadingEnabled
+                      : null,
                 ),
               ],
             ),
