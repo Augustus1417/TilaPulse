@@ -33,3 +33,24 @@ def test_disconnect_only_revokes_its_own_session(client: TestClient) -> None:
     assert client.delete("/api/devices/disconnect", headers={"Authorization": f"Bearer {first}"}).status_code == 204
     assert client.get("/api/readings", params={"device_id": "pond-a"}, headers={"Authorization": f"Bearer {first}"}).status_code == 401
     assert client.get("/api/readings", params={"device_id": "pond-a"}, headers={"Authorization": f"Bearer {second}"}).status_code == 200
+
+
+def test_reading_state_requires_a_session_for_the_same_device(client: TestClient) -> None:
+    register(client, "pond-a", "secret-a")
+    register(client, "pond-b", "secret-b")
+    token_a = connect(client, "pond-a", "secret-a")
+    token_b = connect(client, "pond-b", "secret-b")
+
+    response = client.patch(
+        "/api/devices/pond-a/reading-state",
+        json={"enabled": False},
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["reading_enabled"] is False
+    assert response.json()["online"] is False
+    assert client.patch(
+        "/api/devices/pond-a/reading-state",
+        json={"enabled": True},
+        headers={"Authorization": f"Bearer {token_b}"},
+    ).status_code == 403

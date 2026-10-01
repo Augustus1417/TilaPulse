@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     prediction_alpha: float = 0.7
     prediction_beta: float = 0.3
     prediction_window_size: int = 20
+    online_threshold_seconds: int = 30
     lstm_model_path: str = str(PROJECT_ROOT / "models" / "lstm_model.pt")
     timezone: str = "Asia/Manila"
 

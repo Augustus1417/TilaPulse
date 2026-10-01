@@ -17,7 +17,7 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=False,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Device-Key", "X-Admin-Key"],
 )
 app.include_router(health.router)

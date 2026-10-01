@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Float, ForeignKey, Index, String
+from sqlalchemy import Boolean, Float, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -12,6 +12,7 @@ class DeviceModel(Base):
     device_key_hash: Mapped[str] = mapped_column(String(200), nullable=False)
     created_at: Mapped[str] = mapped_column(String(19), nullable=False)
     last_seen: Mapped[str | None] = mapped_column(String(19), nullable=True)
+    reading_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
 
     readings: Mapped[list["ReadingModel"]] = relationship(back_populates="device")
     sessions: Mapped[list["DeviceSessionModel"]] = relationship(back_populates="device")

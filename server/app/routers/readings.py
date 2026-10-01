@@ -41,6 +41,7 @@ def create_reading(
     verify_ingestion_device_key(device.device_key_hash, x_device_key)
 
     timestamp = now_local()
+    device.last_seen = timestamp
     reading = ReadingModel(
         device_id=payload.device_id,
         temperature=payload.temperature,
@@ -48,7 +49,6 @@ def create_reading(
         dissolved_oxygen=payload.dissolved_oxygen,
         timestamp=timestamp,
     )
-    device.last_seen = timestamp
     db.add(reading)
     db.commit()
     db.refresh(reading)

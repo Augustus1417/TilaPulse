@@ -32,24 +32,26 @@ def migrate_auth_schema() -> None:
         return
 
     columns = {column["name"] for column in inspector.get_columns("devices")}
-    if "device_key" not in columns:
-        return
-
-    # Hash legacy plaintext keys before removing the old column.
-    from app.core.security import hash_device_key
-
     with engine.begin() as connection:
-        if "device_key_hash" not in columns:
-            connection.execute(text("ALTER TABLE devices ADD COLUMN device_key_hash VARCHAR(200)"))
-        legacy_devices = connection.execute(
-            text("SELECT device_id, device_key FROM devices WHERE device_key_hash IS NULL")
-        ).mappings()
-        for device in legacy_devices:
+        if "device_key" in columns:
+            # Hash legacy plaintext keys before removing the old column.
+            from app.core.security import hash_device_key
+
+            if "device_key_hash" not in columns:
+                connection.execute(text("ALTER TABLE devices ADD COLUMN device_key_hash VARCHAR(200)"))
+            legacy_devices = connection.execute(
+                text("SELECT device_id, device_key FROM devices WHERE device_key_hash IS NULL")
+            ).mappings()
+            for device in legacy_devices:
+                connection.execute(
+                    text("UPDATE devices SET device_key_hash = :device_key_hash WHERE device_id = :device_id"),
+                    {
+                        "device_id": device["device_id"],
+                        "device_key_hash": hash_device_key(device["device_key"]),
+                    },
+                )
+            connection.execute(text("ALTER TABLE devices DROP COLUMN device_key"))
+        if "reading_enabled" not in columns:
             connection.execute(
-                text("UPDATE devices SET device_key_hash = :device_key_hash WHERE device_id = :device_id"),
-                {
-                    "device_id": device["device_id"],
-                    "device_key_hash": hash_device_key(device["device_key"]),
-                },
+                text("ALTER TABLE devices ADD COLUMN reading_enabled BOOLEAN NOT NULL DEFAULT TRUE")
             )
-        connection.execute(text("ALTER TABLE devices DROP COLUMN device_key"))

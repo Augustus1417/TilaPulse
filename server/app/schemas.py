@@ -27,6 +27,8 @@ class DeviceOut(BaseModel):
     name: str
     created_at: str
     last_seen: str | None
+    reading_enabled: bool
+    online: bool
 
 
 class DeviceAdminOut(DeviceOut):
@@ -47,6 +49,12 @@ class DeviceConnectIn(BaseModel):
 
 class DeviceConnectOut(BaseModel):
     token: str
+
+
+class ReadingStateUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
 
 
 class PredictionRequest(BaseModel):

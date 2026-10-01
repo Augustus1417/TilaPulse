@@ -27,3 +27,22 @@ def test_readings_are_isolated_between_devices(client: TestClient) -> None:
     response = client.get("/api/readings", params={"device_id": "pond-a"}, headers={"Authorization": f"Bearer {token}"})
     assert [item["temperature"] for item in response.json()] == [28]
     assert client.get("/api/readings/latest", params={"device_id": "pond-b"}, headers={"Authorization": f"Bearer {token}"}).status_code == 403
+
+
+def test_command_returns_reading_state_and_updates_last_seen(client: TestClient) -> None:
+    register(client, "pond-a", "pond-secret")
+    response = client.get("/api/devices/pond-a/command", headers={"X-Device-Key": "pond-secret"})
+    assert response.status_code == 200
+    assert response.json() == {"reading_enabled": True}
+
+    devices = client.get("/api/devices").json()
+    assert devices[0]["last_seen"] is not None
+    assert devices[0]["online"] is True
+
+
+def test_command_rejects_missing_or_wrong_device_key(client: TestClient) -> None:
+    register(client, "pond-a", "pond-secret")
+    assert client.get("/api/devices/pond-a/command").status_code == 401
+    assert client.get(
+        "/api/devices/pond-a/command", headers={"X-Device-Key": "wrong-key"}
+    ).status_code == 401
