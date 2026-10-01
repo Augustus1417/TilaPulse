@@ -6,6 +6,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+# Configurable healthy water-quality ranges.
+TEMP_MIN_C = 24.0
+TEMP_MAX_C = 32.0
+PH_MIN = 6.5
+PH_MAX = 8.5
+DO_MIN_MGL = 5.0
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=PROJECT_ROOT / ".env", env_file_encoding="utf-8", extra="ignore")

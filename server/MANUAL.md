@@ -24,7 +24,9 @@ For Render, Railway, or Fly.io, use `uvicorn app.main:app --host 0.0.0.0 --port 
 - `DELETE /api/devices/disconnect` revokes the current bearer session.
 - `POST /api/readings` accepts sensor fields and requires `X-Device-Key`. Devices must already be registered.
 - `GET /api/readings?device_id=...&limit=...` and `GET /api/readings/latest?device_id=...` require a bearer token for the same device.
-- `POST /api/predict` accepts `device_id` and optionally readings, and requires a bearer token for the same device. Stored readings are queried only for that device before LSTM/BOCPD fusion.
+- `POST /api/devices/{device_id}/predict` explicitly runs LSTM/BOCPD fusion once for the device's stored readings, persists the assessment, and requires a bearer token for the same device.
+- `GET /api/devices/{device_id}/risk/latest` returns the latest stored assessment without recomputing it; it returns `404` until the first explicit assessment.
+- `GET /api/devices/{device_id}/risk/history?limit=...` returns stored assessments newest-first for the device.
 - `POST /api/admin/devices/{device_id}/rotate-key` requires `X-Admin-Key`, returns a new raw key once, and immediately revokes every session for that device.
 - `GET /api/health` reports service status and storage dialect.
 

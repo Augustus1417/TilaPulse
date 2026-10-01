@@ -6,7 +6,7 @@ from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.db import Base, engine, migrate_auth_schema
 from app.prediction import PredictionService
-from app.routers import devices, health, predict, readings
+from app.routers import alerts, devices, health, predict, readings
 
 
 app = FastAPI(title="TilaPulse Sensor API", version="1.0.0")
@@ -22,6 +22,7 @@ app.add_middleware(
 )
 app.include_router(health.router)
 app.include_router(readings.router)
+app.include_router(alerts.router)
 app.include_router(devices.router)
 app.include_router(devices.admin_router)
 app.include_router(predict.router)

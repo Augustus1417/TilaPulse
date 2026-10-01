@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.alerts import evaluate_reading_alerts
 from app.core.config import settings
 from app.core.security import verify_ingestion_device_key, verify_device_session
 from app.db import get_db
@@ -52,6 +53,8 @@ def create_reading(
     db.add(reading)
     db.commit()
     db.refresh(reading)
+    evaluate_reading_alerts(reading, db)
+    db.commit()
     return to_reading_out(reading)
 
 

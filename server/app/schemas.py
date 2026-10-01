@@ -14,6 +14,26 @@ class ReadingOut(ReadingIn):
     timestamp: str
 
 
+class AlertOut(BaseModel):
+    id: int
+    device_id: str
+    parameter: str
+    value: float
+    threshold_breached: str
+    message: str
+    created_at: str
+
+
+class PredictionOut(BaseModel):
+    id: int
+    device_id: str
+    risk_score: float
+    lstm_probability: float
+    bocpd_change_point_probability: float
+    risk_label: str
+    created_at: str
+
+
 class DeviceRegisterIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -55,18 +75,3 @@ class ReadingStateUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool
-
-
-class PredictionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    device_id: str = Field(min_length=1, max_length=120)
-    readings: list[ReadingIn] | None = None
-
-
-class PredictionResponse(BaseModel):
-    device_id: str
-    lstm_probability: float
-    bocpd_probability: float
-    risk_score: float
-    synthetic_model_notice: str
