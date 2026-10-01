@@ -8,14 +8,17 @@ import 'package:client/state/device_state.dart';
 import 'package:client/widgets/design_system.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  const HomePage({super.key, this.onOpenRisk});
+  final VoidCallback? onOpenRisk;
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<HomePage> createState() => HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class HomePageState extends State<HomePage> {
   Future<(Reading, RiskPrediction)>? _future;
   String? _deviceId;
+
+  void refresh() => _refresh();
 
   void _refresh() {
     setState(() {
@@ -29,9 +32,13 @@ class _HomePageState extends State<HomePage> {
       _deviceId = id;
       _future = Future.wait([
         apiService.fetchLatest(id),
-        apiService.fetchLatestRisk(id),
+        apiService.getLatestRisk(id),
       ]).then((values) => (values[0] as Reading, values[1] as RiskPrediction));
     }
+  }
+
+  void _openRisk() {
+    widget.onOpenRisk?.call();
   }
 
   @override
@@ -51,6 +58,10 @@ class _HomePageState extends State<HomePage> {
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
+          if (snapshot.error is ApiException &&
+              (snapshot.error as ApiException).statusCode == 404) {
+            return _NoRiskAssessmentState(onOpenRisk: _openRisk);
+          }
           return _ErrorState(error: snapshot.error);
         }
         if (!snapshot.hasData) {
@@ -71,7 +82,7 @@ class _HomePageState extends State<HomePage> {
           },
           child: ListView(
             children: [
-              PageHeader(title: state.selected!.name),
+              PageHeader(title: state.selected!.name, onRefresh: _refresh),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: SimpleCard(
@@ -154,5 +165,41 @@ class _ErrorState extends StatelessWidget {
     body: error is ApiException && (error as ApiException).statusCode == 404
     ? 'No stored risk assessment is available yet. Run one from the Risk page.'
         : 'Check the API connection and try again.',
+  );
+}
+
+class _NoRiskAssessmentState extends StatelessWidget {
+  const _NoRiskAssessmentState({required this.onOpenRisk});
+  final VoidCallback onOpenRisk;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.insights_outlined, size: 48, color: brandTeal),
+          const SizedBox(height: 16),
+          Text(
+            'No risk assessment yet',
+            style: Theme.of(context).textTheme.titleLarge,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Open the Risk page to run the first assessment for this device.',
+            style: Theme.of(context).textTheme.bodyMedium,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          FilledButton.icon(
+            onPressed: onOpenRisk,
+            icon: const Icon(Icons.stacked_line_chart),
+            label: const Text('Open Risk'),
+          ),
+        ],
+      ),
+    ),
   );
 }

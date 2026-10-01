@@ -15,17 +15,40 @@ class RiskPage extends StatefulWidget {
 class _RiskPageState extends State<RiskPage> {
   Future<RiskPrediction>? _future;
   String? _deviceId;
+  bool _assessing = false;
+  String? _assessmentError;
   void _sync(String? id) {
     if (id != null && id != _deviceId) {
       _deviceId = id;
-      _future = apiService.fetchLatestRisk(id);
+      _future = apiService.getLatestRisk(id);
+      _assessmentError = null;
+      _assessing = false;
     }
   }
 
-  void _runAssessment() {
+  Future<void> _runAssessment() async {
     final deviceId = context.read<DeviceState>().selected?.deviceId;
     if (deviceId == null) return;
-    setState(() => _future = apiService.runAssessment(deviceId));
+    setState(() {
+      _assessing = true;
+      _assessmentError = null;
+    });
+    try {
+      final prediction = await apiService.assessRisk(deviceId);
+      if (!mounted) return;
+      setState(() {
+        _future = Future.value(prediction);
+        _assessing = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _assessing = false;
+        _assessmentError = error is ApiException
+            ? error.message
+            : 'The risk assessment could not be completed.';
+      });
+    }
   }
 
   @override
@@ -45,9 +68,10 @@ class _RiskPageState extends State<RiskPage> {
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return const EmptyState(
-            title: 'Risk is unavailable',
-            body: 'A prediction needs at least one reading.',
+          return _NoAssessmentState(
+            onAssess: _runAssessment,
+            assessing: _assessing,
+            error: _assessmentError,
           );
         }
         if (!snapshot.hasData) {
@@ -76,10 +100,33 @@ class _RiskPageState extends State<RiskPage> {
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                     const SizedBox(height: 14),
+                    Text(
+                      'Stored label: ${prediction.riskLabel}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    if (_assessmentError != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        _assessmentError!,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: StatusTone.critical.color,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                    const SizedBox(height: 14),
                     FilledButton.icon(
-                      onPressed: _runAssessment,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Run new assessment'),
+                      onPressed: _assessing ? null : _runAssessment,
+                      icon: _assessing
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh),
+                      label: Text(
+                        _assessing ? 'Assessing...' : 'Assess Risk Now',
+                      ),
                     ),
                   ],
                 ),
@@ -159,6 +206,64 @@ class _SignalRow extends StatelessWidget {
           style: Theme.of(context).textTheme.titleMedium,
         ),
       ],
+    ),
+  );
+}
+
+class _NoAssessmentState extends StatelessWidget {
+  const _NoAssessmentState({
+    required this.onAssess,
+    required this.assessing,
+    this.error,
+  });
+  final VoidCallback onAssess;
+  final bool assessing;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.insights_outlined, size: 48, color: brandTeal),
+          const SizedBox(height: 16),
+          Text(
+            'No risk assessment yet',
+            style: Theme.of(context).textTheme.titleLarge,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Run an assessment to calculate the current disease risk.',
+            style: Theme.of(context).textTheme.bodyMedium,
+            textAlign: TextAlign.center,
+          ),
+          if (error != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              error!,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: StatusTone.critical.color,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+          const SizedBox(height: 20),
+          FilledButton.icon(
+            onPressed: assessing ? null : onAssess,
+            icon: assessing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh),
+            label: Text(assessing ? 'Assessing...' : 'Assess Risk Now'),
+          ),
+        ],
+      ),
     ),
   );
 }

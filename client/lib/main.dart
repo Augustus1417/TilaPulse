@@ -83,12 +83,16 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _index = 0;
-  static const _pages = [
-    HomePage(),
-    MonitorPage(),
-    RiskPage(),
-    AlertsPage(),
-    SettingsPage(),
+  final _homeKey = GlobalKey<HomePageState>();
+  late final List<Widget> _pages = [
+    HomePage(
+      key: _homeKey,
+      onOpenRisk: () => setState(() => _index = 2),
+    ),
+    const MonitorPage(),
+    const RiskPage(),
+    const AlertsPage(),
+    const SettingsPage(),
   ];
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -109,7 +113,12 @@ class _AppShellState extends State<AppShell> {
       ),
       child: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
+        onDestinationSelected: (value) {
+          if (value == 0 && _index != 0) {
+            _homeKey.currentState?.refresh();
+          }
+          setState(() => _index = value);
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),

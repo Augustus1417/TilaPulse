@@ -21,6 +21,12 @@ class _AlertsPageState extends State<AlertsPage> {
     }
   }
 
+  void _refreshAlerts() {
+    final deviceId = _deviceId;
+    if (deviceId == null) return;
+    setState(() => _future = apiService.fetchAlerts(deviceId));
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<DeviceState>();
@@ -49,7 +55,7 @@ class _AlertsPageState extends State<AlertsPage> {
         final alerts = snapshot.data!;
         return ListView(
           children: [
-            PageHeader(title: 'Alerts'),
+            PageHeader(title: 'Alerts', onRefresh: _refreshAlerts),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: alerts.isEmpty

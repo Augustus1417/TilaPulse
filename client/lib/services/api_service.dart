@@ -177,7 +177,7 @@ class ApiService {
           .map((item) => Reading.fromJson(item as Map<String, dynamic>))
           .toList();
 
-  Future<RiskPrediction> fetchLatestRisk(String deviceId) async =>
+  Future<RiskPrediction> getLatestRisk(String deviceId) async =>
       RiskPrediction.fromJson(
         await _request(
           'GET',
@@ -186,7 +186,7 @@ class ApiService {
         ) as Map<String, dynamic>,
       );
 
-  Future<RiskPrediction> runAssessment(String deviceId) async =>
+  Future<RiskPrediction> assessRisk(String deviceId) async =>
       RiskPrediction.fromJson(
         await _request(
           'POST',
