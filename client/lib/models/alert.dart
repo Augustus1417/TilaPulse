@@ -1,59 +1,36 @@
-import 'package:client/models/reading.dart';
-
-enum AlertType { temperature, ph, dissolvedOxygen }
-
 class WaterAlert {
   const WaterAlert({
-    required this.type,
-    required this.title,
-    required this.description,
+    required this.id,
+    required this.deviceId,
+    required this.parameter,
     required this.value,
-    required this.timestamp,
+    required this.thresholdBreached,
+    required this.message,
+    required this.createdAt,
   });
 
-  final AlertType type;
-  final String title;
-  final String description;
+  factory WaterAlert.fromJson(Map<String, dynamic> json) => WaterAlert(
+        id: json['id'] as int,
+        deviceId: json['device_id'] as String,
+        parameter: json['parameter'] as String,
+        value: (json['value'] as num).toDouble(),
+        thresholdBreached: json['threshold_breached'] as String,
+        message: json['message'] as String,
+        createdAt: DateTime.parse(json['created_at'] as String),
+      );
+
+  final int id;
+  final String deviceId;
+  final String parameter;
   final double value;
-  final DateTime timestamp;
+  final String thresholdBreached;
+  final String message;
+  final DateTime createdAt;
 
-  String get key => type.name;
-}
-
-List<WaterAlert> alertsForReading(Reading reading) {
-  final alerts = <WaterAlert>[];
-  if (reading.temperature < 24 || reading.temperature > 32) {
-    alerts.add(
-      WaterAlert(
-        type: AlertType.temperature,
-        title: 'Temperature out of range',
-        description: 'Healthy range is 24-32 C.',
-        value: reading.temperature,
-        timestamp: reading.timestamp,
-      ),
-    );
-  }
-  if (reading.ph < 6.5 || reading.ph > 8.5) {
-    alerts.add(
-      WaterAlert(
-        type: AlertType.ph,
-        title: 'pH out of range',
-        description: 'Healthy range is 6.5-8.5.',
-        value: reading.ph,
-        timestamp: reading.timestamp,
-      ),
-    );
-  }
-  if (reading.dissolvedOxygen < 5) {
-    alerts.add(
-      WaterAlert(
-        type: AlertType.dissolvedOxygen,
-        title: 'Dissolved oxygen low',
-        description: 'Healthy level is at least 5.0 mg/L.',
-        value: reading.dissolvedOxygen,
-        timestamp: reading.timestamp,
-      ),
-    );
-  }
-  return alerts;
+  String get title => switch (parameter) {
+        'temperature' => 'Temperature alert',
+        'ph' => 'pH alert',
+        'dissolved_oxygen' => 'Dissolved oxygen alert',
+        _ => 'Water-quality alert',
+      };
 }

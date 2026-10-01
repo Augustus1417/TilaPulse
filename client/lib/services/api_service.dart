@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:client/core/constants.dart';
+import 'package:client/models/alert.dart';
 import 'package:client/models/device.dart';
 import 'package:client/models/reading.dart';
 import 'package:client/models/risk_prediction.dart';
@@ -146,6 +147,23 @@ class ApiService {
     ) as Map<String, dynamic>,
   );
 
+  Future<List<WaterAlert>> fetchAlerts(String deviceId) async =>
+      (await _request(
+        'GET',
+        '/api/devices/$deviceId/alerts',
+        deviceId: deviceId,
+      ) as List<dynamic>)
+          .map((item) => WaterAlert.fromJson(item as Map<String, dynamic>))
+          .toList();
+
+  Future<void> resolveAlert(String deviceId, int alertId) async {
+    await _request(
+      'DELETE',
+      '/api/devices/$deviceId/alerts/$alertId',
+      deviceId: deviceId,
+    );
+  }
+
   Future<List<Reading>> fetchReadings(
     String deviceId, {
     int limit = 200,
@@ -159,12 +177,20 @@ class ApiService {
           .map((item) => Reading.fromJson(item as Map<String, dynamic>))
           .toList();
 
-  Future<RiskPrediction> predict(String deviceId) async =>
+  Future<RiskPrediction> fetchLatestRisk(String deviceId) async =>
+      RiskPrediction.fromJson(
+        await _request(
+          'GET',
+          '/api/devices/$deviceId/risk/latest',
+          deviceId: deviceId,
+        ) as Map<String, dynamic>,
+      );
+
+  Future<RiskPrediction> runAssessment(String deviceId) async =>
       RiskPrediction.fromJson(
         await _request(
           'POST',
-          '/api/predict',
-          body: {'device_id': deviceId},
+          '/api/devices/$deviceId/predict',
           deviceId: deviceId,
         ) as Map<String, dynamic>,
       );

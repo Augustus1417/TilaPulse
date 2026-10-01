@@ -29,7 +29,7 @@ class _HomePageState extends State<HomePage> {
       _deviceId = id;
       _future = Future.wait([
         apiService.fetchLatest(id),
-        apiService.predict(id),
+        apiService.fetchLatestRisk(id),
       ]).then((values) => (values[0] as Reading, values[1] as RiskPrediction));
     }
   }
@@ -38,18 +38,24 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final state = context.watch<DeviceState>();
     _sync(state.selected?.deviceId);
-    if (state.loading) return const Center(child: CircularProgressIndicator());
-    if (state.devices.isEmpty)
+    if (state.loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (state.devices.isEmpty) {
       return const EmptyState(
         title: 'No devices connected',
         body: 'Open Settings to connect a device and start receiving readings.',
       );
+    }
     return FutureBuilder<(Reading, RiskPrediction)>(
       future: _future,
       builder: (context, snapshot) {
-        if (snapshot.hasError) return _ErrorState(error: snapshot.error);
-        if (!snapshot.hasData)
+        if (snapshot.hasError) {
+          return _ErrorState(error: snapshot.error);
+        }
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
+        }
         final reading = snapshot.data!.$1;
         final prediction = snapshot.data!.$2;
         final score = (prediction.riskScore * 100).round().clamp(0, 100);
@@ -146,7 +152,7 @@ class _ErrorState extends StatelessWidget {
   Widget build(BuildContext context) => EmptyState(
     title: 'Unable to load pond data',
     body: error is ApiException && (error as ApiException).statusCode == 404
-        ? 'No readings are available for this device yet.'
+    ? 'No stored risk assessment is available yet. Run one from the Risk page.'
         : 'Check the API connection and try again.',
   );
 }

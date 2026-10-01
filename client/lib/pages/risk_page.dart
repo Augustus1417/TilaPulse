@@ -18,30 +18,41 @@ class _RiskPageState extends State<RiskPage> {
   void _sync(String? id) {
     if (id != null && id != _deviceId) {
       _deviceId = id;
-      _future = apiService.predict(id);
+      _future = apiService.fetchLatestRisk(id);
     }
+  }
+
+  void _runAssessment() {
+    final deviceId = context.read<DeviceState>().selected?.deviceId;
+    if (deviceId == null) return;
+    setState(() => _future = apiService.runAssessment(deviceId));
   }
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<DeviceState>();
     _sync(state.selected?.deviceId);
-    if (state.loading) return const Center(child: CircularProgressIndicator());
-    if (state.devices.isEmpty)
+    if (state.loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (state.devices.isEmpty) {
       return const EmptyState(
         title: 'No devices connected',
         body: 'Open Settings to connect a device first.',
       );
+    }
     return FutureBuilder<RiskPrediction>(
       future: _future,
       builder: (context, snapshot) {
-        if (snapshot.hasError)
+        if (snapshot.hasError) {
           return const EmptyState(
             title: 'Risk is unavailable',
             body: 'A prediction needs at least one reading.',
           );
-        if (!snapshot.hasData)
+        }
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
+        }
         final prediction = snapshot.data!;
         final score = (prediction.riskScore * 100).round().clamp(0, 100);
         final tone = score < 30
@@ -63,6 +74,12 @@ class _RiskPageState extends State<RiskPage> {
                     Text(
                       'Current prediction for ${state.selected!.name}',
                       style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 14),
+                    FilledButton.icon(
+                      onPressed: _runAssessment,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Run new assessment'),
                     ),
                   ],
                 ),
@@ -116,14 +133,6 @@ class _RiskPageState extends State<RiskPage> {
                       ],
                     ),
                   ),
-                  if (prediction.notice?.isNotEmpty == true)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Text(
-                        prediction.notice!,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ),
                   const SizedBox(height: 24),
                 ],
               ),
