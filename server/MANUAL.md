@@ -14,7 +14,24 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-For Render, Railway, or Fly.io, use `uvicorn app.main:app --host 0.0.0.0 --port $PORT` as the start command and define the two secrets in the platform environment.
+For Render, the repository includes a `render.yaml` Blueprint. Create a new Blueprint instance from the repository, set `DATABASE_URL` to the Supabase PostgreSQL connection string, and either accept the generated `ADMIN_API_KEY` or replace it with a secret of your own. `CORS_ORIGINS` is optional for native Flutter clients; set it to a JSON array such as `["https://your-web-client.example"]` when serving Flutter Web from a browser. The Blueprint uses `server` as its root directory, installs `requirements.txt`, starts Uvicorn on Render's `$PORT`, and checks `/api/health`.
+
+If configuring the Render service manually, use:
+
+```text
+Root Directory: server
+Build Command: pip install -r requirements.txt
+Start Command: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+Health Check Path: /api/health
+```
+
+The web service filesystem is ephemeral, so do not use SQLite in production. Use Supabase PostgreSQL or another managed PostgreSQL database through `DATABASE_URL`.
+
+Build the Flutter client against the deployed API URL, including the scheme and without a trailing slash:
+
+```text
+flutter build apk --dart-define=API_BASE_URL=https://your-service.onrender.com
+```
 
 ## Routes
 
