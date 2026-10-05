@@ -22,8 +22,9 @@ def hash_device_key(device_key: str) -> str:
 def verify_device_key(device_key: str, device_key_hash: str | None) -> None:
     try:
         valid = bool(device_key_hash and pwd_context.verify(device_key, device_key_hash))
-    except ValueError:
-        # bcrypt only accepts passwords up to 72 bytes.
+    except (ValueError, RuntimeError):
+        # bcrypt only accepts passwords up to 72 bytes, and backend failures
+        # must not turn invalid credentials into an internal server error.
         valid = False
     if not valid:
         raise HTTPException(

@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.core import security
 from tests.conftest import connect, register
 
 
@@ -10,6 +11,24 @@ def test_connect_rejects_overlong_device_key(client: TestClient) -> None:
         json={"device_id": "pond-a", "device_key": "x" * 73},
     )
     assert response.status_code == 401
+
+
+def test_connect_rejects_authentication_backend_failure(
+    client: TestClient, monkeypatch
+) -> None:
+    register(client, "pond-a", "secret-a")
+
+    def fail_verification(device_key: str, device_key_hash: str) -> bool:
+        raise RuntimeError("bcrypt backend unavailable")
+
+    monkeypatch.setattr(security.pwd_context, "verify", fail_verification)
+    response = client.post(
+        "/api/devices/connect",
+        json={"device_id": "pond-a", "device_key": "secret-a"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "invalid device credentials"
 
 
 def test_connect_rejects_invalid_credentials(client: TestClient) -> None:
