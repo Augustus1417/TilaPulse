@@ -20,7 +20,12 @@ def hash_device_key(device_key: str) -> str:
 
 
 def verify_device_key(device_key: str, device_key_hash: str | None) -> None:
-    if not device_key_hash or not pwd_context.verify(device_key, device_key_hash):
+    try:
+        valid = bool(device_key_hash and pwd_context.verify(device_key, device_key_hash))
+    except ValueError:
+        # bcrypt only accepts passwords up to 72 bytes.
+        valid = False
+    if not valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing device key",

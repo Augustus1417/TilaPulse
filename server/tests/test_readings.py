@@ -18,6 +18,16 @@ def test_device_key_is_required_and_reading_is_timestamped(client: TestClient) -
     assert len(response.json()["timestamp"]) == 19
 
 
+def test_overlong_device_key_is_rejected(client: TestClient) -> None:
+    register(client, "pond-a", "pond-secret")
+    response = client.post(
+        "/api/readings",
+        json=reading("pond-a", 28),
+        headers={"X-Device-Key": "x" * 73},
+    )
+    assert response.status_code == 401
+
+
 def test_readings_are_isolated_between_devices(client: TestClient) -> None:
     register(client, "pond-a", "secret-a")
     register(client, "pond-b", "secret-b")

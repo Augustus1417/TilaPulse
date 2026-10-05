@@ -3,6 +3,15 @@ from fastapi.testclient import TestClient
 from tests.conftest import connect, register
 
 
+def test_connect_rejects_overlong_device_key(client: TestClient) -> None:
+    register(client, "pond-a", "secret-a")
+    response = client.post(
+        "/api/devices/connect",
+        json={"device_id": "pond-a", "device_key": "x" * 73},
+    )
+    assert response.status_code == 401
+
+
 def test_connect_rejects_invalid_credentials(client: TestClient) -> None:
     register(client, "pond-a", "secret-a")
     assert client.post("/api/devices/connect", json={"device_id": "pond-a", "device_key": "wrong"}).status_code == 401
