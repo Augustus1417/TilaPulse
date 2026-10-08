@@ -84,13 +84,11 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _index = 0;
   final _homeKey = GlobalKey<HomePageState>();
+  final _riskKey = GlobalKey<RiskPageState>();
   late final List<Widget> _pages = [
-    HomePage(
-      key: _homeKey,
-      onOpenRisk: () => setState(() => _index = 2),
-    ),
+    HomePage(key: _homeKey, onOpenRisk: () => setState(() => _index = 2)),
     const MonitorPage(),
-    const RiskPage(),
+    RiskPage(key: _riskKey),
     const AlertsPage(),
     const SettingsPage(),
   ];
@@ -116,6 +114,9 @@ class _AppShellState extends State<AppShell> {
         onDestinationSelected: (value) {
           if (value == 0 && _index != 0) {
             _homeKey.currentState?.refresh();
+          }
+          if (value == 2 && _index != 2) {
+            _riskKey.currentState?.refresh();
           }
           setState(() => _index = value);
         },

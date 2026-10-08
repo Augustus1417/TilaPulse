@@ -102,6 +102,14 @@ class HomePageState extends State<HomePage> {
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
+                      const SizedBox(height: 8),
+                      Tooltip(
+                        message: formatTimestamp(prediction.createdAt),
+                        child: Text(
+                          'Last assessed ${formatRelativeTime(prediction.createdAt)}',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
                     ],
                   ),
                 ),

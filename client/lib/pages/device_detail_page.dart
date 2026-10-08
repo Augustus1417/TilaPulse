@@ -19,6 +19,93 @@ class DeviceDetailPage extends StatefulWidget {
   State<DeviceDetailPage> createState() => _DeviceDetailPageState();
 }
 
+class _RenameDeviceDialog extends StatefulWidget {
+  const _RenameDeviceDialog({
+    required this.initialName,
+    required this.deviceId,
+  });
+
+  final String initialName;
+  final String deviceId;
+
+  @override
+  State<_RenameDeviceDialog> createState() => _RenameDeviceDialogState();
+}
+
+class _RenameDeviceDialogState extends State<_RenameDeviceDialog> {
+  late final TextEditingController _controller;
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final name = _controller.text.trim();
+    setState(() => _saving = true);
+    try {
+      final device = await apiService.renameDevice(widget.deviceId, name);
+      if (mounted) Navigator.of(context).pop(device);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = error is ApiException
+            ? error.message
+            : 'Unable to rename this device.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = _controller.text.trim();
+    final canSave = !_saving &&
+        name.isNotEmpty &&
+        name != widget.initialName &&
+        name.length <= 50 &&
+        !name.contains(RegExp(r'[\x00-\x1F\x7F]'));
+    return AlertDialog(
+      title: const Text('Rename device'),
+      content: TextField(
+        controller: _controller,
+        maxLength: 50,
+        autofocus: true,
+        decoration: InputDecoration(
+          labelText: 'Device name',
+          errorText: _error,
+        ),
+        onChanged: (_) => setState(() => _error = null),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: canSave ? _save : null,
+          child: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
 class _DeviceDetailPageState extends State<DeviceDetailPage> {
   Future<Reading?>? _readingFuture;
   late Device _device;
@@ -79,6 +166,21 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
     }
   }
 
+  Future<void> _renameDevice() async {
+    final deviceId = _device.deviceId;
+    final updated = await showDialog<Device>(
+      context: context,
+      builder: (_) => _RenameDeviceDialog(
+        initialName: _device.name,
+        deviceId: deviceId,
+      ),
+    );
+    if (updated != null && mounted) {
+      setState(() => _device = updated);
+      context.read<DeviceState>().replaceDevice(updated);
+    }
+  }
+
   Future<Reading?> _loadReading() async {
     try {
       return await apiService.fetchLatest(widget.device.deviceId);
@@ -128,6 +230,11 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                   _device.name,
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
+              ),
+              IconButton(
+                onPressed: _renameDevice,
+                icon: const Icon(Icons.edit_outlined),
+                tooltip: 'Rename device',
               ),
               Icon(
                 _device.online ? Icons.wifi : Icons.wifi_off,

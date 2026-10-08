@@ -13,13 +13,47 @@ class MonitorPage extends StatefulWidget {
 }
 
 class _MonitorPageState extends State<MonitorPage> {
-  Future<List<Reading>>? _future;
   String? _deviceId;
+  List<Reading>? _readings;
+  Object? _error;
+  bool _refreshing = false;
 
   void _sync(String? id) {
     if (id != null && id != _deviceId) {
       _deviceId = id;
-      _future = apiService.fetchReadings(id, limit: 200);
+      _readings = null;
+      _load(id);
+    }
+  }
+
+  Future<List<Reading>> _load(String id) async {
+    try {
+      final results = await Future.wait([
+        apiService.fetchLatest(id),
+        apiService.fetchReadings(id, limit: 200),
+      ]);
+      final readings = results[1] as List<Reading>;
+      if (mounted && id == _deviceId) {
+        setState(() {
+          _readings = readings;
+          _error = null;
+        });
+      }
+      return readings;
+    } catch (error) {
+      if (mounted && id == _deviceId) setState(() => _error = error);
+      rethrow;
+    }
+  }
+
+  Future<void> _refresh() async {
+    final id = _deviceId;
+    if (id == null || _refreshing) return;
+    setState(() => _refreshing = true);
+    try {
+      await _load(id);
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
     }
   }
 
@@ -27,34 +61,36 @@ class _MonitorPageState extends State<MonitorPage> {
   Widget build(BuildContext context) {
     final state = context.watch<DeviceState>();
     _sync(state.selected?.deviceId);
-    if (state.loading) return const Center(child: CircularProgressIndicator());
-    if (state.devices.isEmpty)
+    if (state.loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (state.devices.isEmpty) {
       return const EmptyState(
         title: 'No devices connected',
         body: 'Open Settings to connect a device and start monitoring.',
       );
-    return FutureBuilder<List<Reading>>(
-      future: _future,
-      builder: (context, snapshot) {
-        if (snapshot.hasError)
+    }
+    return Builder(
+      builder: (context) {
+        if (_error != null && _readings == null) {
           return const EmptyState(
             title: 'Unable to load history',
             body: 'Check the API connection and try again.',
           );
-        if (!snapshot.hasData)
+        }
+        if (_readings == null) {
           return const Center(child: CircularProgressIndicator());
-        final readings = snapshot.data!;
+        }
+        final readings = _readings!;
         return RefreshIndicator(
-          onRefresh: () async {
-            setState(() {
-              _deviceId = null;
-              _sync(state.selected?.deviceId);
-            });
-            await _future;
-          },
+          onRefresh: _refresh,
           child: ListView(
             children: [
-              const PageHeader(title: 'Water Quality Monitoring'),
+              PageHeader(
+                title: 'Water Quality Monitoring',
+                onRefresh: _refresh,
+                refreshing: _refreshing,
+              ),
               if (readings.isEmpty)
                 const EmptyState(
                   title: 'No readings yet',

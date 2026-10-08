@@ -67,7 +67,8 @@ class ApiService {
             .timeout(timeout),
     };
 
-    if (response.statusCode == 401 && deviceId != null) {
+    if ((response.statusCode == 401 || response.statusCode == 403) &&
+        deviceId != null) {
       await _tokenStorage.deleteToken(deviceId);
       onSessionExpired?.call(deviceId);
       throw const SessionExpiredException('This device needs to reconnect.');
@@ -102,6 +103,16 @@ class ApiService {
           'PATCH',
           '/api/devices/$deviceId/reading-state',
           body: {'enabled': enabled},
+          deviceId: deviceId,
+        ) as Map<String, dynamic>,
+      );
+
+  Future<Device> renameDevice(String deviceId, String name) async =>
+      Device.fromJson(
+        await _request(
+          'PATCH',
+          '/api/devices/$deviceId/name',
+          body: {'name': name},
           deviceId: deviceId,
         ) as Map<String, dynamic>,
       );
@@ -149,10 +160,10 @@ class ApiService {
 
   Future<List<WaterAlert>> fetchAlerts(String deviceId) async =>
       (await _request(
-        'GET',
-        '/api/devices/$deviceId/alerts',
-        deviceId: deviceId,
-      ) as List<dynamic>)
+            'GET',
+            '/api/devices/$deviceId/alerts',
+            deviceId: deviceId,
+          ) as List<dynamic>)
           .map((item) => WaterAlert.fromJson(item as Map<String, dynamic>))
           .toList();
 

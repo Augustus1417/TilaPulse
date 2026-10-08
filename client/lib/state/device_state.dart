@@ -51,6 +51,12 @@ class DeviceState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<Device> renameDevice(String deviceId, String name) async {
+    final updated = await _api.renameDevice(deviceId, name);
+    replaceDevice(updated);
+    return updated;
+  }
+
   Future<void> _loadConnectedDevices() async {
     final ids = await _api.connectedDeviceIds();
     final remoteDevices = await _api.fetchDevices();

@@ -165,10 +165,12 @@ class PageHeader extends StatelessWidget {
     super.key,
     required this.title,
     this.onRefresh,
+    this.refreshing = false,
     this.showSwitcher = true,
   });
   final String title;
   final VoidCallback? onRefresh;
+  final bool refreshing;
   final bool showSwitcher;
   @override
   Widget build(BuildContext context) => Padding(
@@ -191,8 +193,14 @@ class PageHeader extends StatelessWidget {
             const Spacer(),
             if (onRefresh != null)
               IconButton(
-                onPressed: onRefresh,
-                icon: const Icon(Icons.refresh),
+                onPressed: refreshing ? null : onRefresh,
+                icon: refreshing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh),
                 tooltip: 'Refresh',
               ),
           ],

@@ -1,7 +1,4 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import 'package:client/services/api_service.dart';
 import 'package:client/state/device_state.dart';
@@ -47,15 +44,6 @@ class _ConnectDevicePageState extends State<ConnectDevicePage> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  Future<void> _scanQr() async {
-    final result = await Navigator.of(context).push<_ScannedDevice>(
-      MaterialPageRoute(builder: (_) => const _QrScannerPage()),
-    );
-    if (!mounted || result == null) return;
-    _deviceIdController.text = result.deviceId;
-    _deviceKeyController.text = result.deviceKey;
   }
 
   @override
@@ -124,73 +112,11 @@ class _ConnectDevicePageState extends State<ConnectDevicePage> {
                     label: Text(_loading ? 'Connecting...' : 'Connect'),
                   ),
                 ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: _loading ? null : _scanQr,
-                    icon: const Icon(Icons.qr_code_scanner),
-                    label: const Text('Scan QR code'),
-                  ),
-                ),
               ],
             ),
           ),
         ),
       ],
     ),
-  );
-}
-
-class _ScannedDevice {
-  const _ScannedDevice(this.deviceId, this.deviceKey);
-  final String deviceId;
-  final String deviceKey;
-}
-
-class _QrScannerPage extends StatefulWidget {
-  const _QrScannerPage();
-
-  @override
-  State<_QrScannerPage> createState() => _QrScannerPageState();
-}
-
-class _QrScannerPageState extends State<_QrScannerPage> {
-  bool _handled = false;
-
-  void _handleScan(BarcodeCapture capture) {
-    if (_handled) return;
-    for (final barcode in capture.barcodes) {
-      final raw = barcode.rawValue?.trim();
-      if (raw == null || raw.isEmpty) continue;
-      final scanned = _parse(raw);
-      if (scanned != null) {
-        _handled = true;
-        Navigator.of(context).pop(scanned);
-        return;
-      }
-    }
-  }
-
-  _ScannedDevice? _parse(String raw) {
-    try {
-      final payload = jsonDecode(raw);
-      if (payload is Map<String, dynamic>) {
-        final deviceId = payload['device_id']?.toString().trim();
-        final deviceKey = payload['device_key']?.toString().trim();
-        if (deviceId?.isNotEmpty == true && deviceKey?.isNotEmpty == true) {
-          return _ScannedDevice(deviceId!, deviceKey!);
-        }
-      }
-    } catch (_) {
-      // A QR code may contain the key only; the device ID can be entered next.
-    }
-    return null;
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Scan device QR code')),
-    body: MobileScanner(onDetect: _handleScan),
   );
 }

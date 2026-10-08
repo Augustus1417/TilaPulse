@@ -9,20 +9,45 @@ import 'package:client/widgets/design_system.dart';
 class RiskPage extends StatefulWidget {
   const RiskPage({super.key});
   @override
-  State<RiskPage> createState() => _RiskPageState();
+  State<RiskPage> createState() => RiskPageState();
 }
 
-class _RiskPageState extends State<RiskPage> {
+class RiskPageState extends State<RiskPage> {
   Future<RiskPrediction>? _future;
   String? _deviceId;
+  RiskPrediction? _prediction;
+  bool _refreshing = false;
   bool _assessing = false;
   String? _assessmentError;
   void _sync(String? id) {
     if (id != null && id != _deviceId) {
       _deviceId = id;
-      _future = apiService.getLatestRisk(id);
+      _prediction = null;
+      _future = _load(id);
       _assessmentError = null;
       _assessing = false;
+    }
+  }
+
+  Future<RiskPrediction> _load(String id) async {
+    final prediction = await apiService.getLatestRisk(id);
+    if (mounted && id == _deviceId) setState(() => _prediction = prediction);
+    return prediction;
+  }
+
+  Future<void> refresh() async {
+    final id = _deviceId;
+    if (id == null || _refreshing) return;
+    setState(() => _refreshing = true);
+    try {
+      await _load(id);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(_errorMessage(error))));
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
     }
   }
 
@@ -38,6 +63,7 @@ class _RiskPageState extends State<RiskPage> {
       if (!mounted) return;
       setState(() {
         _future = Future.value(prediction);
+        _prediction = prediction;
         _assessing = false;
       });
     } catch (error) {
@@ -74,10 +100,10 @@ class _RiskPageState extends State<RiskPage> {
             error: _assessmentError,
           );
         }
-        if (!snapshot.hasData) {
+        if (!snapshot.hasData && _prediction == null) {
           return const Center(child: CircularProgressIndicator());
         }
-        final prediction = snapshot.data!;
+        final prediction = _prediction ?? snapshot.data!;
         final score = (prediction.riskScore * 100).round().clamp(0, 100);
         final tone = score < 30
             ? StatusTone.normal
@@ -87,13 +113,25 @@ class _RiskPageState extends State<RiskPage> {
         final changePoint = prediction.bocpdProbability >= bocpdAlertThreshold;
         return ListView(
           children: [
-            const PageHeader(title: 'Disease Risk'),
+            PageHeader(
+              title: 'Disease Risk',
+              onRefresh: refresh,
+              refreshing: _refreshing,
+            ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: SimpleCard(
                 child: Column(
                   children: [
                     RiskGauge(score: score, tone: tone),
+                    const SizedBox(height: 8),
+                    Tooltip(
+                      message: formatTimestamp(prediction.createdAt),
+                      child: Text(
+                        'Last assessed ${formatRelativeTime(prediction.createdAt)}',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
                     const SizedBox(height: 14),
                     Text(
                       'Current prediction for ${state.selected!.name}',
@@ -108,9 +146,8 @@ class _RiskPageState extends State<RiskPage> {
                       const SizedBox(height: 10),
                       Text(
                         _assessmentError!,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: StatusTone.critical.color,
-                        ),
+                        style: Theme.of(context).textTheme.bodyMedium
+                            ?.copyWith(color: StatusTone.critical.color),
                         textAlign: TextAlign.center,
                       ),
                     ],
@@ -189,6 +226,10 @@ class _RiskPageState extends State<RiskPage> {
       },
     );
   }
+
+  String _errorMessage(Object error) => error is ApiException
+      ? error.message
+      : 'The latest risk assessment could not be loaded.';
 }
 
 class _SignalRow extends StatelessWidget {
@@ -244,9 +285,8 @@ class _NoAssessmentState extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               error!,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: StatusTone.critical.color,
-              ),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: StatusTone.critical.color),
               textAlign: TextAlign.center,
             ),
           ],
