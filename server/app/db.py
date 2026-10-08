@@ -55,3 +55,11 @@ def migrate_auth_schema() -> None:
             connection.execute(
                 text("ALTER TABLE devices ADD COLUMN reading_enabled BOOLEAN NOT NULL DEFAULT TRUE")
             )
+
+    if inspector.has_table("predictions"):
+        prediction_columns = {column["name"] for column in inspector.get_columns("predictions")}
+        if "source" not in prediction_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE predictions ADD COLUMN source VARCHAR(20) NOT NULL DEFAULT 'manual'")
+                )

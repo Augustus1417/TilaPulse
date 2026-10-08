@@ -82,5 +82,6 @@ class PredictionModel(Base):
     bocpd_change_point_probability: Mapped[float] = mapped_column(Float, nullable=False)
     risk_label: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[str] = mapped_column(String(19), nullable=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual", server_default=text("'manual'"))
 
     device: Mapped[DeviceModel] = relationship(back_populates="predictions")

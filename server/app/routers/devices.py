@@ -13,7 +13,7 @@ from app.core.security import hash_device_key, verify_admin_key, verify_device_k
 from app.db import get_db
 from app.models import DeviceModel, DeviceSessionModel
 from app.routers.readings import now_local
-from app.schemas import DeviceAdminOut, DeviceConnectIn, DeviceConnectOut, DeviceOut, DeviceRegisterIn, DeviceRegistrationOut, ReadingStateUpdate
+from app.schemas import DeviceAdminOut, DeviceConnectIn, DeviceConnectOut, DeviceNameUpdate, DeviceOut, DeviceRegisterIn, DeviceRegistrationOut, ReadingStateUpdate
 
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -21,20 +21,24 @@ admin_router = APIRouter(prefix="/api/admin/devices", tags=["admin"])
 limiter = Limiter(key_func=get_remote_address)
 
 
-def public_device(device: DeviceModel) -> DeviceOut:
+def is_device_online(device: DeviceModel) -> bool:
     online = False
     if device.last_seen is not None:
         last_seen = datetime.strptime(device.last_seen, "%Y-%m-%d %H:%M:%S").replace(
             tzinfo=ZoneInfo(settings.timezone)
         )
         online = (datetime.now(ZoneInfo(settings.timezone)) - last_seen).total_seconds() < settings.online_threshold_seconds
+    return online
+
+
+def public_device(device: DeviceModel) -> DeviceOut:
     return DeviceOut(
         device_id=device.device_id,
         name=device.name,
         created_at=device.created_at,
         last_seen=device.last_seen,
         reading_enabled=device.reading_enabled,
-        online=online,
+        online=is_device_online(device),
     )
 
 
@@ -117,6 +121,29 @@ def update_reading_state(
     if device is None:
         raise HTTPException(status_code=404, detail="Device is not registered")
     device.reading_enabled = payload.enabled
+    db.commit()
+    db.refresh(device)
+    return public_device(device)
+
+
+@router.patch("/{device_id}/name", response_model=DeviceOut)
+def update_device_name(
+    device_id: str,
+    payload: DeviceNameUpdate,
+    session_device_id: str = Depends(verify_device_session),
+    db: Session = Depends(get_db),
+) -> DeviceOut:
+    if device_id != session_device_id:
+        raise HTTPException(status_code=403, detail="Session is not authorized for this device")
+    device = db.get(DeviceModel, device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device is not registered")
+    name = payload.name.strip()
+    if not name or any(not character.isprintable() for character in name):
+        raise HTTPException(status_code=422, detail="Device name must be 1-50 characters without control characters")
+    if len(name) > 50:
+        raise HTTPException(status_code=422, detail="Device name must be 1-50 characters without control characters")
+    device.name = name
     db.commit()
     db.refresh(device)
     return public_device(device)

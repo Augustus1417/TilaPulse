@@ -115,6 +115,9 @@ ADMIN_API_KEY=replace-with-a-long-admin-secret
 PREDICTION_ALPHA=0.7
 PREDICTION_BETA=0.3
 PREDICTION_WINDOW_SIZE=20
+PREDICTION_INTERVAL_MINUTES=60
+PREDICTION_MIN_READINGS=20
+SCHEDULER_ENABLED=true
 ```
 
 Run tests with:
@@ -243,3 +246,12 @@ For local development:
 - A physical phone should use the computer's LAN IP address.
 
 The Flutter client fetches live readings, device-scoped predictions, alerts, and registered device metadata. If no ESP32 is connected yet, register a device and use the authenticated `POST /api/readings` curl command above to seed a test reading through the real ingestion path.
+# AI pipeline status
+
+The current AI pipeline is explicitly synthetic-only. It simulates sensor
+streams and trains/evaluates the LSTM, BOCPD, baselines, and fusion on those
+streams because real farm/BFAR datasets are not available yet. Any reported
+metrics validate the data, preprocessing, and inference pipeline only; they
+are not evidence of real disease prediction or field performance. Replace the
+assumptions in `server/app/core/ai_config.py` with documented farm data before
+using the system for scientific or operational claims.
