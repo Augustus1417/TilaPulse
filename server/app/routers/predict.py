@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 
 from app.core.security import verify_device_session
 from app.db import get_db
-from app.models import DeviceModel, PredictionModel, ReadingModel
-from app.routers.readings import now_local
+from app.models import DeviceModel, PredictionModel
+from app.core.config import settings
+from app.prediction_runner import run_prediction
 from app.schemas import PredictionOut
 
 
@@ -13,9 +14,9 @@ router = APIRouter(prefix="/api/devices", tags=["predictions"])
 
 
 def _risk_label(risk_score: float) -> str:
-    if risk_score < 0.3:
+    if risk_score < settings.prediction_risk_low_threshold:
         return "low"
-    if risk_score < 0.6:
+    if risk_score < settings.prediction_risk_high_threshold:
         return "moderate"
     return "high"
 
@@ -47,38 +48,12 @@ def create_prediction(
     db: Session = Depends(get_db),
 ) -> PredictionOut:
     _authorized_device(device_id, session_device_id, db)
-    records = db.scalars(
-        select(ReadingModel)
-        .where(ReadingModel.device_id == device_id)
-        .order_by(ReadingModel.id.asc())
-    ).all()
-    if not records:
-        raise HTTPException(status_code=404, detail="No readings found for device")
-    record_data = [
-        {
-            "device_id": reading.device_id,
-            "temperature": reading.temperature,
-            "ph": reading.ph,
-            "dissolved_oxygen": reading.dissolved_oxygen,
-        }
-        for reading in records
-    ]
     try:
-        result = request.app.state.prediction_service.predict(record_data)
+        prediction = run_prediction(db, device_id, "manual", request.app.state.prediction_service)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (FileNotFoundError, RuntimeError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    risk_score = float(result["risk_score"])
-    prediction = PredictionModel(
-        device_id=device_id,
-        risk_score=risk_score,
-        lstm_probability=float(result["lstm_probability"]),
-        bocpd_change_point_probability=float(result["bocpd_probability"]),
-        risk_label=_risk_label(risk_score),
-        created_at=now_local(),
-    )
-    db.add(prediction)
-    db.commit()
-    db.refresh(prediction)
     return _prediction_out(prediction)
 
 

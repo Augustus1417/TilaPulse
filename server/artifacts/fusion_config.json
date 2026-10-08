@@ -1,0 +1,9 @@
+{
+  "alpha": 1.0,
+  "beta": 0.0,
+  "risk_thresholds": {
+    "low": 0.225,
+    "high": 0.45
+  },
+  "synthetic_data": true
+}

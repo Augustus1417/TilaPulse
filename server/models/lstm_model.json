@@ -1,0 +1,37 @@
+{
+  "feature_order": [
+    "temperature",
+    "ph",
+    "dissolved_oxygen"
+  ],
+  "window_size": 20,
+  "hidden_size": 32,
+  "scaler": {
+    "feature_order": [
+      "temperature",
+      "ph",
+      "dissolved_oxygen"
+    ],
+    "means": [
+      27.229134413797237,
+      7.212723292824848,
+      5.291038765980575
+    ],
+    "scales": [
+      0.8377895363873922,
+      0.18005833797616366,
+      0.4600577445214158
+    ]
+  },
+  "training_config": {
+    "seed": 42,
+    "synthetic_data": true,
+    "validation_pr_auc": 0.6057959372090065
+  },
+  "synthetic_data": true,
+  "split_sizes": {
+    "train_sequences": 210,
+    "validation_sequences": 45,
+    "test_sequences": 45
+  }
+}

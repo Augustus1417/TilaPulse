@@ -1,38 +1,76 @@
 from collections.abc import Mapping, Sequence
+from typing import Any
 
-
-FEATURE_NAMES = ("temperature", "ph", "dissolved_oxygen")
+from app.core.ai_config import AI_CONFIG, FEATURE_NAMES
 
 
 class SensorPreprocessor:
-    def __init__(
-        self,
-        window_size: int = 20,
-        means: Sequence[float] = (28.0, 7.2, 5.5),
-        scales: Sequence[float] = (4.0, 1.5, 3.0),
-    ) -> None:
-        if window_size < 1 or len(means) != 3 or len(scales) != 3 or any(scale <= 0 for scale in scales):
-            raise ValueError("window_size and feature normalization values are invalid")
-        self.window_size = window_size
-        self.means = tuple(means)
-        self.scales = tuple(scales)
+    """Shared resampling, last-observation imputation, and train-fitted z-score."""
 
-    def normalize(self, records: Sequence[Mapping[str, object]]) -> list[list[float]]:
-        previous = list(self.means)
-        normalized: list[list[float]] = []
+    def __init__(self, window_size: int = AI_CONFIG.window_size,
+                 means: Sequence[float] | None = None,
+                 scales: Sequence[float] | None = None) -> None:
+        if window_size < 1:
+            raise ValueError("window_size must be positive")
+        if (means is None) != (scales is None):
+            raise ValueError("means and scales must be supplied together")
+        self.window_size = window_size
+        self.means = tuple(float(value) for value in (means or (0.0, 0.0, 0.0)))
+        self.scales = tuple(float(value) for value in (scales or (1.0, 1.0, 1.0)))
+        if len(self.means) != 3 or len(self.scales) != 3 or any(value <= 0 for value in self.scales):
+            raise ValueError("normalization statistics are invalid")
+        self.fitted = means is not None
+
+    def _raw(self, records: Sequence[Mapping[str, object]]) -> list[list[float]]:
+        previous = [0.0, 0.0, 0.0]
+        output: list[list[float]] = []
         for record in records:
-            values = []
+            row: list[float] = []
             for index, name in enumerate(FEATURE_NAMES):
                 try:
-                    value = float(record.get(name, previous[index]))
+                    value = float(record.get(name))  # type: ignore[arg-type]
                 except (TypeError, ValueError):
                     value = previous[index]
+                if not value == value or abs(value) == float("inf"):
+                    value = previous[index]
                 previous[index] = value
-                values.append((value - self.means[index]) / self.scales[index])
-            normalized.append(values)
-        return normalized
+                row.append(value)
+            output.append(row)
+        return output
+
+    def fit(self, sequences: Sequence[Sequence[Mapping[str, object]]]) -> "SensorPreprocessor":
+        raw_sequences = [self._raw(sequence) for sequence in sequences]
+        count = sum(len(sequence) for sequence in raw_sequences)
+        if not count:
+            raise ValueError("cannot fit scaler on empty data")
+        means = []
+        scales = []
+        for index in range(3):
+            mean = sum(row[index] for sequence in raw_sequences for row in sequence) / count
+            variance = sum((row[index] - mean) ** 2 for sequence in raw_sequences for row in sequence) / max(1, count - 1)
+            means.append(mean)
+            scales.append(max(variance ** 0.5, 1e-6))
+        self.means, self.scales, self.fitted = tuple(means), tuple(scales), True
+        return self
+
+    def transform(self, records: Sequence[Mapping[str, object]]) -> list[list[float]]:
+        if not self.fitted:
+            raise RuntimeError("fit the preprocessor on training data before transforming")
+        return [[(value - self.means[index]) / self.scales[index] for index, value in enumerate(row)]
+                for row in self._raw(records)]
 
     def window(self, records: Sequence[Mapping[str, object]]) -> list[list[float]]:
-        normalized = self.normalize(records)
-        padding = [normalized[0]] * (self.window_size - len(normalized)) if normalized else [[0.0] * 3] * self.window_size
-        return (padding + normalized)[-self.window_size:]
+        transformed = self.transform(records)
+        padding = [transformed[0]] * (self.window_size - len(transformed)) if transformed else [
+            [0.0] * 3
+        ] * self.window_size
+        return (padding + transformed)[-self.window_size:]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"feature_order": list(FEATURE_NAMES), "means": list(self.means), "scales": list(self.scales)}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any], window_size: int) -> "SensorPreprocessor":
+        if tuple(data.get("feature_order", ())) != FEATURE_NAMES:
+            raise ValueError("checkpoint feature order does not match the API")
+        return cls(window_size, data["means"], data["scales"])

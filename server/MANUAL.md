@@ -4,7 +4,7 @@ The backend is a long-running FastAPI/ASGI service. It uses SQLAlchemy storage c
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set `DATABASE_URL` to the Supabase connection string and `ADMIN_API_KEY` to a private operations secret. The older `DB_CONNECTION_STRING` name is accepted as a compatibility alias, but new deployments should use `DATABASE_URL`.
+Copy `.env.example` to `.env` and set `DATABASE_URL` to the Supabase connection string and `ADMIN_API_KEY` to a private operations secret. The older `DB_CONNECTION_STRING` name is accepted as a compatibility alias, but new deployments should use `DATABASE_URL`. `PREDICTION_INTERVAL_MINUTES` controls scheduled prediction frequency (default `60`), `PREDICTION_MIN_READINGS` sets the scheduled minimum (default `20`), and `SCHEDULER_ENABLED` enables or disables scheduled predictions (default `true`).
 
 Run locally from `server`:
 
@@ -41,6 +41,7 @@ flutter build apk --dart-define=API_BASE_URL=https://your-service.onrender.com
 - `DELETE /api/devices/disconnect` revokes the current bearer session.
 - `GET /api/devices/{device_id}/command` accepts `X-Device-Key`, updates `last_seen`, and returns the current `reading_enabled` state for firmware polling.
 - `PATCH /api/devices/{device_id}/reading-state` updates `reading_enabled` for the device associated with the bearer session.
+- `PATCH /api/devices/{device_id}/name` updates the trimmed device name for the device associated with the bearer session. Names are limited to 50 characters and cannot contain control characters.
 - `POST /api/readings` accepts sensor fields and requires `X-Device-Key`. Devices must already be registered.
 - `GET /api/readings?device_id=...&limit=...` and `GET /api/readings/latest?device_id=...` require a bearer token for the same device.
 - `GET /api/devices/{device_id}/alerts` lists active threshold alerts and `DELETE /api/devices/{device_id}/alerts/{alert_id}` resolves one.

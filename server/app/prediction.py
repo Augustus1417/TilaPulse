@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from app.bocpd import BOCPD
+from app.core.ai_config import AI_CONFIG, SYNTHETIC_MODEL_NOTICE
 from app.lstm import load_lstm_model
 from app.preprocessing import SensorPreprocessor
 
@@ -14,11 +15,20 @@ class PredictionService:
         self.model_path = Path(model_path)
         self.alpha = alpha
         self.beta = beta
-        self.preprocessor = SensorPreprocessor(window_size)
+        self.preprocessor = SensorPreprocessor(window_size, means=None, scales=None)
         self.model: Any | None = None
+        self.metadata: dict[str, Any] | None = None
 
     def load_model(self) -> None:
-        self.model = load_lstm_model(self.model_path)
+        loaded = load_lstm_model(self.model_path)
+        if loaded is None:
+            self.model = None
+            return
+        self.model, self.metadata = loaded
+        metadata_window = int(self.metadata["window_size"])
+        if metadata_window != self.preprocessor.window_size:
+            raise ValueError("checkpoint window size does not match service configuration")
+        self.preprocessor = SensorPreprocessor.from_dict(self.metadata["scaler"], metadata_window)
 
     def predict(self, records: Sequence[dict[str, object]]) -> dict[str, float | str]:
         if self.model is None:
@@ -36,5 +46,5 @@ class PredictionService:
             "lstm_probability": round(lstm_probability, 6),
             "bocpd_probability": round(bocpd_probability, 6),
             "risk_score": round(self.alpha * lstm_probability + self.beta * bocpd_probability, 6),
-            "synthetic_model_notice": "The shipped checkpoint was trained on synthetic data and is for development only, not real disease evidence.",
+            "synthetic_model_notice": SYNTHETIC_MODEL_NOTICE,
         }
