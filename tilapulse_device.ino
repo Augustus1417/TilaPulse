@@ -4,54 +4,47 @@
 #include <HTTPClient.h>
 #include <WiFiManager.h>   // https://github.com/tzapu/WiFiManager - install via Library Manager
 #include <Preferences.h>
+#include <ArduinoJson.h>   // install via Library Manager - used to parse the command response
 
 // ==========================================
 // 🌐 NETWORK CONFIGURATION
 // ==========================================
-// WiFi credentials are no longer hardcoded. On first boot (or if saved
-// credentials fail), the ESP32 opens its own setup access point named
-// below. Connect a phone/laptop to it, a captive portal page will pop up
-// automatically letting you pick your real WiFi network and enter its
-// password. WiFiManager saves that to flash so this only needs to happen
-// once per device (or after a reset - see resetWiFiSettings()).
-const char *SETUP_AP_NAME = "TilaPulse-Setup";
-// Optional: give the setup AP a password too, so a random passerby can't
-// open your device's config portal. Leave as "" for an open setup AP.
+// SETUP_AP_NAME is no longer a fixed string - it's built from DEVICE_ID below
+// (in setup()) so each physical unit shows its own distinct setup AP, e.g.
+// "TilaPulse_Dev1-Setup", instead of every device showing the same name.
 const char *SETUP_AP_PASSWORD = "";
 
-const char *API_URL = "http://192.168.18.49:8000/api/readings";
-const char *DEVICE_ID = "pond-1";
-const char *DEVICE_KEY = "stringst";
+const char *API_BASE_URL = "https://tilapulse.onrender.com";
+const char *DEVICE_ID = "TilaPulse_Dev1";
+const char *DEVICE_KEY = "tp_dev1_2627";
+
+// Derived endpoint URLs and AP name (built once in setup())
+String READINGS_URL;
+String COMMAND_URL;
+String SETUP_AP_NAME;
 
 // ==========================================
 // 📌 PIN CONFIGURATIONS
 // ==========================================
-#define DO_PIN    35       // Analog Pin for Dissolved Oxygen (D35)
-#define PH_PIN    34       // Analog Pin for pH Sensor (D34)
-#define ONE_WIRE_BUS 4     // Digital Pin for DS18B20 Temp Sensor (D4)
-#define WIFI_RESET_PIN 0   // Hold this pin LOW at boot to wipe saved WiFi
-                           // credentials and re-open the setup portal.
-                           // On most ESP32 dev boards this is the "BOOT" button.
+#define DO_PIN    35
+#define PH_PIN    34
+#define ONE_WIRE_BUS 4
+#define WIFI_RESET_PIN 0
 
 // ==========================================
 // 🛠️ CALIBRATION VALUES
 // ==========================================
-#define VREF 3300.0        // ESP32 working voltage (3300mV)
-#define ADC_RES 4096.0     // ESP32 12-bit ADC
+#define VREF 3300.0
+#define ADC_RES 4096.0
 
-// DO Calibration Values
-float cal1VoltageDO = 1525.0; // Your unique air-saturated voltage (mV)
+float cal1VoltageDO = 1525.0;
+float phNeutralVoltage = 1500.0;
+float phAcidVoltage    = 2032.0;
 
-// pH Calibration Values (Standard DFRobot factory baseline)
-float phNeutralVoltage = 1500.0; // Voltage at pH 7.0 (mV)
-float phAcidVoltage    = 2032.0; // Voltage at pH 4.0 (mV)
-
-// Initialize OneWire and DallasTemperature instances
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature tempSensor(&oneWire);
 WiFiManager wm;
 
-// DO Saturation Table (mg/L vs Temperature °C) from 0°C to 40°C
 const uint16_t DO_Table[] = {
     14621, 14228, 13829, 13442, 13059, 12698, 12349, 12011, 11687, 11372,
     11071, 10777, 10495, 10221, 9956,  9700,  9453,  9213,  8981,  8757,
@@ -60,11 +53,24 @@ const uint16_t DO_Table[] = {
 };
 
 // ==========================================
+// ▶️⏸️ REMOTE START/STOP STATE
+// ==========================================
+// Desired state as last reported by the server. Starts true so a brand-new
+// device reads by default until someone explicitly pauses it from the app.
+bool readingEnabled = true;
+
+// How often to check in with the server for the current command/heartbeat,
+// independent of the sensor sample rate - this keeps last_seen (and so the
+// app's "online" indicator) fresh even while paused.
+const unsigned long COMMAND_POLL_INTERVAL_MS = 5000; // every 5 seconds
+unsigned long lastCommandPollMs = 0;
+
+// ==========================================
 // 📶 WIFI PROVISIONING
 // ==========================================
 void resetWiFiSettingsIfRequested() {
     pinMode(WIFI_RESET_PIN, INPUT_PULLUP);
-    delay(50); // let the pin settle
+    delay(50);
     if (digitalRead(WIFI_RESET_PIN) == LOW) {
         Serial.println("[WiFi] Reset pin held LOW at boot - erasing saved WiFi credentials.");
         wm.resetSettings();
@@ -72,26 +78,21 @@ void resetWiFiSettingsIfRequested() {
 }
 
 void connectToWiFi() {
-    // Optional visual/serial feedback while the config portal is open.
     wm.setAPCallback([](WiFiManager *manager) {
         Serial.println("==================================================");
         Serial.print("[WiFi] No saved network found. Setup AP started: ");
         Serial.println(SETUP_AP_NAME);
-        Serial.println("[WiFi] Connect a phone to that WiFi network, a setup");
-        Serial.println("[WiFi] page should open automatically to configure it.");
+        Serial.println("[WiFi] Connect a phone to that WiFi network to configure it.");
         Serial.println("==================================================");
     });
 
-    // How long the setup portal stays open before giving up and retrying
-    // later (keeps the device from being stuck forever with no sensors
-    // reporting if nobody configures it right away).
-    wm.setConfigPortalTimeout(180); // 3 minutes
+    wm.setConfigPortalTimeout(180);
 
     bool connected;
     if (strlen(SETUP_AP_PASSWORD) > 0) {
-        connected = wm.autoConnect(SETUP_AP_NAME, SETUP_AP_PASSWORD);
+        connected = wm.autoConnect(SETUP_AP_NAME.c_str(), SETUP_AP_PASSWORD);
     } else {
-        connected = wm.autoConnect(SETUP_AP_NAME);
+        connected = wm.autoConnect(SETUP_AP_NAME.c_str());
     }
 
     if (connected) {
@@ -104,6 +105,45 @@ void connectToWiFi() {
     }
 }
 
+// ==========================================
+// ▶️⏸️ COMMAND / HEARTBEAT CHECK-IN
+// ==========================================
+// Polls GET /api/devices/{device_id}/command. This call alone updates the
+// device's last_seen on the server (it's the heartbeat), regardless of
+// whether reading is currently enabled - so "online" status reflects real
+// connectivity, separate from whether sampling is paused.
+void pollCommand() {
+    if (WiFi.status() != WL_CONNECTED) return;
+
+    HTTPClient http;
+    http.begin(COMMAND_URL);
+    http.addHeader("X-Device-Key", DEVICE_KEY);
+
+    int responseCode = http.GET();
+    if (responseCode == 200) {
+        String body = http.getString();
+        StaticJsonDocument<128> doc;
+        DeserializationError err = deserializeJson(doc, body);
+        if (!err) {
+            bool newState = doc["reading_enabled"] | true; // default true on parse gap
+            if (newState != readingEnabled) {
+                Serial.print("[Command] reading_enabled changed to: ");
+                Serial.println(newState ? "true (resuming)" : "false (pausing)");
+            }
+            readingEnabled = newState;
+        } else {
+            Serial.println("[Command] Failed to parse response, keeping last known state.");
+        }
+    } else if (responseCode > 0) {
+        Serial.print("[Command] Unexpected response code: ");
+        Serial.println(responseCode);
+    } else {
+        Serial.print("[Command] Request failed: ");
+        Serial.println(http.errorToString(responseCode));
+    }
+    http.end();
+}
+
 void postReading(float currentTemperature, float phValue, float doValue) {
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("[WARN] Reading not sent: Wi-Fi is disconnected.");
@@ -111,7 +151,7 @@ void postReading(float currentTemperature, float phValue, float doValue) {
     }
 
     HTTPClient http;
-    http.begin(API_URL);
+    http.begin(READINGS_URL);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-Device-Key", DEVICE_KEY);
 
@@ -134,44 +174,64 @@ void postReading(float currentTemperature, float phValue, float doValue) {
 }
 
 void setup() {
-    Serial.begin(115200); // Communication speed limit to laptop
+    Serial.begin(115200);
     delay(1000);
 
-    // Configure Analog Pins for ESP32
     pinMode(DO_PIN, ANALOG);
     pinMode(PH_PIN, ANALOG);
     analogReadResolution(12);
 
-    // Initialize the DS18B20 Temp Sensor
     tempSensor.begin();
+
+    // Build the setup AP name from DEVICE_ID, e.g. "TilaPulse_Dev1-Setup",
+    // so each physical unit is distinguishable during WiFi provisioning.
+    SETUP_AP_NAME = String(DEVICE_ID) + "-Setup";
 
     resetWiFiSettingsIfRequested();
     connectToWiFi();
 
+    READINGS_URL = String(API_BASE_URL) + "/api/readings";
+    COMMAND_URL = String(API_BASE_URL) + "/api/devices/" + String(DEVICE_ID) + "/command";
+
     Serial.println("--- All 3 Sensors Initialized (DS18B20 Active) ---");
+
+    // Check in once immediately at boot so the device shows online right away
+    // and picks up the current desired state before the first sample loop.
+    pollCommand();
 }
 
 void loop() {
-    // If WiFi drops mid-operation (router reboot, out of range, etc.),
-    // try to reconnect using the already-saved credentials rather than
-    // re-opening the setup portal - the portal should only appear when
-    // there are NO saved credentials at all, or resetWiFiSettings() ran.
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("[WiFi] Connection lost, attempting to reconnect...");
         WiFi.reconnect();
         delay(2000);
+        return; // skip this cycle, try again next loop
+    }
+
+    // Check in with the server on its own interval, independent of the
+    // sensor sampling below - this is what keeps "online" accurate even
+    // while paused.
+    unsigned long nowMs = millis();
+    if (nowMs - lastCommandPollMs >= COMMAND_POLL_INTERVAL_MS) {
+        pollCommand();
+        lastCommandPollMs = nowMs;
+    }
+
+    if (!readingEnabled) {
+        Serial.println("[Paused] reading_enabled is false - skipping sensor read/post.");
+        delay(1000);
+        return;
     }
 
     // ----------------------------------------------------
     // 1. READ DIGITAL TEMPERATURE SENSOR (DS18B20)
     // ----------------------------------------------------
-    tempSensor.requestTemperatures(); // Tell sensor to calculate a reading
-    float currentTemperature = tempSensor.getTempCByIndex(0); // Fetch temperature in Celsius
+    tempSensor.requestTemperatures();
+    float currentTemperature = tempSensor.getTempCByIndex(0);
 
-    // Error Check: If sensor is physically unplugged or broken, it returns -127.0
     if (currentTemperature == DEVICE_DISCONNECTED_C) {
         Serial.println("[ERROR] DS18B20 Sensor Not Found! Using 25.0C Fallback.");
-        currentTemperature = 25.0; // Temporary safety baseline value
+        currentTemperature = 25.0;
     }
 
     // ----------------------------------------------------
@@ -180,13 +240,11 @@ void loop() {
     uint32_t rawDO = analogRead(DO_PIN);
     float voltageDO = (float)rawDO * VREF / ADC_RES;
 
-    // Use the dynamic live temperature to find the oxygen baseline step in array
     int doIndex = (int)round(currentTemperature);
     if (doIndex < 0) doIndex = 0;
-    if (doIndex > 40) doIndex = 40; // Prevent exceeding array boundary limit
+    if (doIndex > 40) doIndex = 40;
     float maxSaturationDO = (float)DO_Table[doIndex] / 1000.0;
 
-    // Calculate accurate dynamic DO (mg/L) using the real-time temp
     float doValue = voltageDO * maxSaturationDO / cal1VoltageDO;
 
     // ----------------------------------------------------
@@ -195,7 +253,6 @@ void loop() {
     uint32_t rawPH = analogRead(PH_PIN);
     float voltagePH = (float)rawPH * VREF / ADC_RES;
 
-    // Calculate pH using two-point slope mapping (Linear Interpolation)
     float slope = (7.0 - 4.0) / (phNeutralVoltage - phAcidVoltage);
     float phValue = 7.0 + (voltagePH - phNeutralVoltage) * slope;
 
@@ -208,5 +265,5 @@ void loop() {
 
     postReading(currentTemperature, phValue, doValue);
 
-    delay(2000); // Sample all parameters every 2 seconds
+    delay(2000);
 }
