@@ -1,6 +1,6 @@
 const apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://192.168.18.49:8000',
+  defaultValue: 'https://tilapulse.onrender.com',
 );
 
 String get resolvedApiBaseUrl {
