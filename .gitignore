@@ -1,2 +1,4 @@
 /.pytest_cache
 /__pycache__
+/client/android/app/google-services.json
+/client/firebase.json
