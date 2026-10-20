@@ -1,4 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- If an open-WiFi-settings helper is added later, it may also need
          android.permission.ACCESS_WIFI_STATE here. iOS will likely need an
          App Transport Security exception in Info.plist for the local HTTP
@@ -8,6 +9,12 @@
         android:name="${applicationName}"
         android:usesCleartextTraffic="true"
         android:icon="@mipmap/ic_launcher">
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="pond_alerts" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_tilapulse" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

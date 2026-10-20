@@ -143,10 +143,38 @@ class ApiService {
 
   Future<void> disconnectDevice(String deviceId) async {
     try {
+      await deletePushToken(deviceId);
+    } catch (_) {}
+    try {
       await _request('DELETE', '/api/devices/disconnect', deviceId: deviceId);
     } finally {
       await _tokenStorage.deleteToken(deviceId);
     }
+  }
+
+  Future<void> registerPushToken(String deviceId, String token) async {
+      await _request(
+        'POST',
+        '/api/devices/$deviceId/push-token',
+        body: {'token': token},
+        deviceId: deviceId,
+      );
+  }
+
+  Future<void> deletePushToken(String deviceId) async {
+      await _request(
+        'DELETE',
+        '/api/devices/$deviceId/push-token',
+        deviceId: deviceId,
+      );
+  }
+
+  Future<void> sendPushTest(String deviceId) async {
+      await _request(
+        'POST',
+        '/api/devices/$deviceId/push-test',
+        deviceId: deviceId,
+      );
   }
 
   Future<Reading> fetchLatest(String deviceId) async => Reading.fromJson(

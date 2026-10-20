@@ -1,4 +1,4 @@
-package com.example.client
+package com.tilapulse.app
 
 import io.flutter.embedding.android.FlutterActivity
 

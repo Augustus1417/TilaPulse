@@ -255,3 +255,6 @@ metrics validate the data, preprocessing, and inference pipeline only; they
 are not evidence of real disease prediction or field performance. Replace the
 assumptions in `server/app/core/ai_config.py` with documented farm data before
 using the system for scientific or operational claims.
+## Firebase push notifications
+
+The FastAPI backend supports Android Firebase Cloud Messaging through the Firebase Admin SDK and FCM HTTP v1. Configure `PUSH_ENABLED`, `ANDROID_CHANNEL_ID`, `ALERT_NOTIFY_COOLDOWN_MINUTES`, and `OFFLINE_NOTIFY_AFTER_MINUTES` as needed. For local development use `GOOGLE_APPLICATION_CREDENTIALS` with a service-account JSON file. On a hosting platform, store the complete service-account JSON in the secret environment variable `FIREBASE_CREDENTIALS_JSON`. Do not commit the JSON file or log its contents. Push remains a no-op when disabled or unconfigured.

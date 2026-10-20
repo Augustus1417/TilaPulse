@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:client/firebase_options.dart';
 import 'package:provider/provider.dart';
 import 'package:client/pages/alerts_page.dart';
 import 'package:client/pages/connect_device_page.dart';
@@ -7,14 +10,23 @@ import 'package:client/pages/monitor_page.dart';
 import 'package:client/pages/risk_page.dart';
 import 'package:client/pages/settings_page.dart';
 import 'package:client/state/device_state.dart';
+import 'package:client/services/notification_service.dart';
+import 'package:client/pages/device_detail_page.dart';
 import 'package:client/widgets/design_system.dart';
 
 final appNavigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  }
   final deviceState = DeviceState();
+  await notificationService.initialize(deviceState);
   await deviceState.load();
+  await notificationService.registerForConnectedDevices();
   deviceState.onReconnectRequired = () {
     appNavigatorKey.currentState?.push(
       MaterialPageRoute(builder: (_) => const ConnectDevicePage()),
@@ -85,13 +97,44 @@ class _AppShellState extends State<AppShell> {
   int _index = 0;
   final _homeKey = GlobalKey<HomePageState>();
   final _riskKey = GlobalKey<RiskPageState>();
+  final _alertsKey = GlobalKey<AlertsPageState>();
   late final List<Widget> _pages = [
     HomePage(key: _homeKey, onOpenRisk: () => setState(() => _index = 2)),
     const MonitorPage(),
     RiskPage(key: _riskKey),
-    const AlertsPage(),
+    AlertsPage(key: _alertsKey),
     const SettingsPage(),
   ];
+  @override
+  void initState() {
+    super.initState();
+    notificationService.onSelectedDeviceMessage = () {
+      _homeKey.currentState?.refresh();
+      _riskKey.currentState?.refresh();
+      _alertsKey.currentState?.refresh();
+    };
+    notificationService.attachTapHandler(_handleNotificationTap);
+  }
+
+  Future<void> _handleNotificationTap(String type, String deviceId) async {
+    if (!mounted) return;
+    if (type == 'alert') {
+      _alertsKey.currentState?.refresh();
+      setState(() => _index = 3);
+    } else if (type == 'risk_high') {
+      _riskKey.currentState?.refresh();
+      setState(() => _index = 2);
+    } else if (type == 'device_offline') {
+      final device = context.read<DeviceState>().deviceForId(deviceId);
+      if (device != null) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => DeviceDetailPage(device: device)),
+        );
+      }
+    } else if (type == 'home') {
+      setState(() => _index = 0);
+    }
+  }
   @override
   Widget build(BuildContext context) => Scaffold(
     body: IndexedStack(index: _index, children: _pages),

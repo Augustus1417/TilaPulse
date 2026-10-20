@@ -8,10 +8,10 @@ import 'package:client/widgets/design_system.dart';
 class AlertsPage extends StatefulWidget {
   const AlertsPage({super.key});
   @override
-  State<AlertsPage> createState() => _AlertsPageState();
+  State<AlertsPage> createState() => AlertsPageState();
 }
 
-class _AlertsPageState extends State<AlertsPage> {
+class AlertsPageState extends State<AlertsPage> {
   Future<List<WaterAlert>>? _future;
   String? _deviceId;
   void _sync(String? id) {
@@ -20,6 +20,8 @@ class _AlertsPageState extends State<AlertsPage> {
       _future = apiService.fetchAlerts(id);
     }
   }
+
+  void refresh() => _refreshAlerts();
 
   void _refreshAlerts() {
     final deviceId = _deviceId;

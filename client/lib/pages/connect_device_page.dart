@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:client/services/api_service.dart';
+import 'package:client/services/notification_service.dart';
 import 'package:client/state/device_state.dart';
 import 'package:client/widgets/design_system.dart';
 import 'package:client/widgets/tilapulse_logo.dart';
@@ -34,6 +35,12 @@ class _ConnectDevicePageState extends State<ConnectDevicePage> {
         deviceId: _deviceIdController.text.trim(),
         deviceKey: _deviceKeyController.text.trim(),
       );
+      if (mounted) {
+        await notificationService.onDeviceConnected(
+          _deviceIdController.text.trim(),
+          context,
+        );
+      }
       if (mounted) Navigator.of(context).pop();
     } catch (error) {
       if (!mounted) return;

@@ -5,6 +5,7 @@ import 'package:client/core/constants.dart';
 import 'package:client/models/device.dart';
 import 'package:client/models/reading.dart';
 import 'package:client/services/api_service.dart';
+import 'package:client/services/notification_service.dart';
 import 'package:client/state/device_state.dart';
 import 'package:client/widgets/design_system.dart';
 import 'package:provider/provider.dart';
@@ -111,15 +112,105 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
   late Device _device;
   Timer? _statusTimer;
   bool _updatingReadingState = false;
+  bool _pushEnabled = true;
+  bool _pushLoading = true;
+  bool _sendingPushTest = false;
 
   @override
   void initState() {
     super.initState();
     _device = widget.device;
+    _loadPushSettings();
     _refreshReading();
     _statusTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       _refreshStatus();
     });
+  }
+
+  Future<void> _loadPushSettings() async {
+    final enabled = await notificationService.enabledFor(_device.deviceId);
+    if (mounted) {
+      setState(() {
+        _pushEnabled = enabled;
+        _pushLoading = false;
+      });
+    }
+  }
+
+  Future<void> _setPushEnabled(bool enabled) async {
+    setState(() {
+      _pushEnabled = enabled;
+      _pushLoading = true;
+    });
+    try {
+      if (enabled) {
+        final permitted = await notificationService.requestPermission(context);
+        if (!permitted) {
+          if (mounted) {
+            setState(() {
+              _pushEnabled = false;
+              _pushLoading = false;
+            });
+            await _showNotificationSettingsNote();
+          }
+          return;
+        }
+      }
+      await notificationService.setEnabled(_device.deviceId, enabled);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to update notification settings.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _pushLoading = false);
+    }
+  }
+
+  Future<void> _showNotificationSettingsNote() async {
+    final openSettings = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Notifications are off'),
+        content: const Text(
+          'Enable notifications in Android Settings to receive pond alerts.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
+    if (openSettings == true && mounted) {
+      await notificationService.showPermissionSettings(context);
+    }
+  }
+
+  Future<void> _sendPushTest() async {
+    setState(() => _sendingPushTest = true);
+    try {
+      await apiService.sendPushTest(_device.deviceId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Test notification sent')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to send test notification.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sendingPushTest = false);
+    }
   }
 
   @override
@@ -283,6 +374,46 @@ class _DeviceDetailPageState extends State<DeviceDetailPage> {
                   onChanged: _device.online && !_updatingReadingState
                       ? _setReadingEnabled
                       : null,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text('Notifications', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 10),
+          SimpleCard(
+            child: Column(
+              children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Push notifications for this device'),
+                  subtitle: const Text(
+                    'Water quality, risk, and offline alerts',
+                  ),
+                  value: _pushEnabled,
+                  onChanged: _pushLoading ? null : _setPushEnabled,
+                ),
+                if (!_pushEnabled)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: _showNotificationSettingsNote,
+                      child: const Text('Notification permission is off'),
+                    ),
+                  ),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: !_pushEnabled || _sendingPushTest
+                        ? null
+                        : _sendPushTest,
+                    icon: const Icon(Icons.notifications_active_outlined),
+                    label: Text(
+                      _sendingPushTest
+                          ? 'Sending...'
+                          : 'Send test notification',
+                    ),
+                  ),
                 ),
               ],
             ),
