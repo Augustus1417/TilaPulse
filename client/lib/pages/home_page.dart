@@ -6,6 +6,7 @@ import 'package:client/core/constants.dart';
 import 'package:client/services/api_service.dart';
 import 'package:client/state/device_state.dart';
 import 'package:client/widgets/design_system.dart';
+import 'package:client/widgets/risk_gauge.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, this.onOpenRisk});
@@ -70,11 +71,6 @@ class HomePageState extends State<HomePage> {
         final reading = snapshot.data!.$1;
         final prediction = snapshot.data!.$2;
         final score = (prediction.riskScore * 100).round().clamp(0, 100);
-        final tone = score < 30
-            ? StatusTone.normal
-            : score < 60
-            ? StatusTone.warning
-            : StatusTone.critical;
         return RefreshIndicator(
           onRefresh: () async {
             _refresh();
@@ -82,7 +78,7 @@ class HomePageState extends State<HomePage> {
           },
           child: ListView(
             children: [
-              PageHeader(title: state.selected!.name, onRefresh: _refresh),
+              PageHeader(onRefresh: _refresh, title: null),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: SimpleCard(
@@ -93,22 +89,10 @@ class HomePageState extends State<HomePage> {
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 14),
-                      RiskGauge(score: score, tone: tone),
-                      const SizedBox(height: 10),
-                      Text(
-                        tone == StatusTone.normal
-                            ? 'Live readings are within healthy water-quality bands.'
-                            : 'One or more readings need attention.',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      Tooltip(
-                        message: formatTimestamp(prediction.createdAt),
-                        child: Text(
-                          'Last assessed ${formatRelativeTime(prediction.createdAt)}',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
+                      RiskGauge(
+                        score: score,
+                        lastAssessed:
+                            'Last assessed ${formatRelativeTime(prediction.createdAt)}',
                       ),
                     ],
                   ),
@@ -171,7 +155,7 @@ class _ErrorState extends StatelessWidget {
   Widget build(BuildContext context) => EmptyState(
     title: 'Unable to load pond data',
     body: error is ApiException && (error as ApiException).statusCode == 404
-    ? 'No stored risk assessment is available yet. Run one from the Risk page.'
+        ? 'No stored risk assessment is available yet. Run one from the Risk page.'
         : 'Check the API connection and try again.',
   );
 }
@@ -187,7 +171,7 @@ class _NoRiskAssessmentState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.insights_outlined, size: 48, color: brandTeal),
+          const RiskGauge(),
           const SizedBox(height: 16),
           Text(
             'No risk assessment yet',

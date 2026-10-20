@@ -5,6 +5,7 @@ import 'package:client/models/risk_prediction.dart';
 import 'package:client/services/api_service.dart';
 import 'package:client/state/device_state.dart';
 import 'package:client/widgets/design_system.dart';
+import 'package:client/widgets/risk_gauge.dart';
 
 class RiskPage extends StatefulWidget {
   const RiskPage({super.key});
@@ -105,11 +106,6 @@ class RiskPageState extends State<RiskPage> {
         }
         final prediction = _prediction ?? snapshot.data!;
         final score = (prediction.riskScore * 100).round().clamp(0, 100);
-        final tone = score < 30
-            ? StatusTone.normal
-            : score < 60
-            ? StatusTone.warning
-            : StatusTone.critical;
         final changePoint = prediction.bocpdProbability >= bocpdAlertThreshold;
         return ListView(
           children: [
@@ -123,27 +119,14 @@ class RiskPageState extends State<RiskPage> {
               child: SimpleCard(
                 child: Column(
                   children: [
-                    RiskGauge(score: score, tone: tone),
-                    const SizedBox(height: 8),
-                    Tooltip(
-                      message: formatTimestamp(prediction.createdAt),
-                      child: Text(
-                        'Last assessed ${formatRelativeTime(prediction.createdAt)}',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      'Current prediction for ${state.selected!.name}',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      'Stored label: ${prediction.riskLabel}',
-                      style: Theme.of(context).textTheme.bodyMedium,
+                    RiskGauge(
+                      score: score,
+                      showLegend: true,
+                      lastAssessed:
+                          'Last assessed ${formatRelativeTime(prediction.createdAt)}',
                     ),
                     if (_assessmentError != null) ...[
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 14),
                       Text(
                         _assessmentError!,
                         style: Theme.of(context).textTheme.bodyMedium
@@ -268,7 +251,7 @@ class _NoAssessmentState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.insights_outlined, size: 48, color: brandTeal),
+          const RiskGauge(),
           const SizedBox(height: 16),
           Text(
             'No risk assessment yet',

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:client/services/api_service.dart';
 import 'package:client/state/device_state.dart';
 import 'package:client/widgets/design_system.dart';
+import 'package:client/widgets/tilapulse_logo.dart';
 
 class ConnectDevicePage extends StatefulWidget {
   const ConnectDevicePage({super.key});
@@ -53,7 +54,7 @@ class _ConnectDevicePageState extends State<ConnectDevicePage> {
       padding: const EdgeInsets.all(16),
       children: [
         const SizedBox(height: 12),
-        const Icon(Icons.link, size: 44, color: brandTeal),
+        const TilaPulseLogo(height: 64),
         const SizedBox(height: 16),
         Text(
           'Connect to your pond device',
