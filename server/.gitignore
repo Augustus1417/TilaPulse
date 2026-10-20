@@ -2,6 +2,9 @@
 /.venv
 /.pytest_cache
 __pycache__
+*firebase-adminsdk*.json
+*firebase-service-account*.json
+service-account*.json
 
 /app/__pycache__
 /app/core/__pycache__

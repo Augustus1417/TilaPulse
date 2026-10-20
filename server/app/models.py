@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Float, ForeignKey, Index, String, text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, String, text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -13,6 +13,7 @@ class DeviceModel(Base):
     created_at: Mapped[str] = mapped_column(String(19), nullable=False)
     last_seen: Mapped[str | None] = mapped_column(String(19), nullable=True)
     reading_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    offline_notified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
 
     readings: Mapped[list["ReadingModel"]] = relationship(back_populates="device")
     sessions: Mapped[list["DeviceSessionModel"]] = relationship(back_populates="device")
@@ -31,6 +32,27 @@ class DeviceSessionModel(Base):
     revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     device: Mapped[DeviceModel] = relationship(back_populates="sessions")
+
+
+class PushTokenModel(Base):
+    __tablename__ = "push_tokens"
+    __table_args__ = (UniqueConstraint("fcm_token", "device_id", name="uq_push_tokens_token_device"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    device_id: Mapped[str] = mapped_column(String(120), ForeignKey("devices.device_id"), index=True, nullable=False)
+    session_token: Mapped[str] = mapped_column(String(200), ForeignKey("device_sessions.token"), nullable=False)
+    fcm_token: Mapped[str] = mapped_column(String(4096), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(19), nullable=False)
+
+
+class NotificationLogModel(Base):
+    __tablename__ = "notification_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    device_id: Mapped[str] = mapped_column(String(120), ForeignKey("devices.device_id"), index=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    key: Mapped[str] = mapped_column(String(200), nullable=False)
+    sent_at: Mapped[str] = mapped_column(String(19), nullable=False)
 
 
 class ReadingModel(Base):

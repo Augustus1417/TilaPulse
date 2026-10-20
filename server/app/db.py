@@ -55,6 +55,10 @@ def migrate_auth_schema() -> None:
             connection.execute(
                 text("ALTER TABLE devices ADD COLUMN reading_enabled BOOLEAN NOT NULL DEFAULT TRUE")
             )
+        if "offline_notified" not in columns:
+            connection.execute(
+                text("ALTER TABLE devices ADD COLUMN offline_notified BOOLEAN NOT NULL DEFAULT FALSE")
+            )
 
     if inspector.has_table("predictions"):
         prediction_columns = {column["name"] for column in inspector.get_columns("predictions")}

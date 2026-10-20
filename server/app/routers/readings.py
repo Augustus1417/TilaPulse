@@ -1,7 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.security import verify_ingestion_device_key, verify_device_session
 from app.db import get_db
 from app.models import DeviceModel, ReadingModel
+from app.notifications import notify_alerts
 from app.schemas import ReadingIn, ReadingOut
 
 
@@ -33,6 +34,7 @@ def to_reading_out(reading: ReadingModel) -> ReadingOut:
 @router.post("", response_model=ReadingOut, status_code=status.HTTP_201_CREATED)
 def create_reading(
     payload: ReadingIn,
+    background_tasks: BackgroundTasks,
     x_device_key: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> ReadingOut:
@@ -53,8 +55,10 @@ def create_reading(
     db.add(reading)
     db.commit()
     db.refresh(reading)
-    evaluate_reading_alerts(reading, db)
+    created_alerts = evaluate_reading_alerts(reading, db)
     db.commit()
+    if created_alerts:
+        background_tasks.add_task(notify_alerts, payload.device_id, [alert.id for alert in created_alerts])
     return to_reading_out(reading)
 
 

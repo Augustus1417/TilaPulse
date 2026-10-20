@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.db import Base, engine, migrate_auth_schema
 from app.prediction import PredictionService
 from app.routers import alerts, devices, health, predict, readings
-from app.scheduler import run_scheduled_predictions
+from app.scheduler import run_offline_notifications, run_scheduled_predictions
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 
@@ -32,6 +32,14 @@ async def lifespan(app: FastAPI):
             minutes=settings.prediction_interval_minutes,
             args=[app],
             id="scheduled-predictions",
+            max_instances=1,
+            coalesce=True,
+        )
+        scheduler.add_job(
+            run_offline_notifications,
+            "interval",
+            minutes=1,
+            id="offline-notifications",
             max_instances=1,
             coalesce=True,
         )

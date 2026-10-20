@@ -13,7 +13,8 @@ def _now_local() -> str:
     return datetime.now(ZoneInfo(settings.timezone)).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def evaluate_reading_alerts(reading: ReadingModel, db: Session) -> None:
+def evaluate_reading_alerts(reading: ReadingModel, db: Session) -> list[AlertModel]:
+    created: list[AlertModel] = []
     checks: tuple[tuple[str, float, Callable[[float], bool], str, str], ...] = (
         (
             "temperature",
@@ -62,8 +63,7 @@ def evaluate_reading_alerts(reading: ReadingModel, db: Session) -> None:
             )
         )
         if existing is None:
-            db.add(
-                AlertModel(
+            alert = AlertModel(
                     device_id=reading.device_id,
                     parameter=parameter,
                     value=value,
@@ -71,4 +71,6 @@ def evaluate_reading_alerts(reading: ReadingModel, db: Session) -> None:
                     message=message,
                     created_at=_now_local(),
                 )
-            )
+            db.add(alert)
+            created.append(alert)
+    return created

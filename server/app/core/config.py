@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     online_threshold_seconds: int = 30
     lstm_model_path: str = str(PROJECT_ROOT / "models" / "lstm_model.pt")
     timezone: str = "Asia/Manila"
+    push_enabled: bool = True
+    firebase_credentials_json: str | None = None
+    google_application_credentials: str | None = None
+    android_channel_id: str = "pond_alerts"
+    alert_notify_cooldown_minutes: int = 30
+    offline_notify_after_minutes: int = 5
 
 
 settings = Settings()

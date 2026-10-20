@@ -2,18 +2,19 @@ import secrets
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import hash_device_key, verify_admin_key, verify_device_key, verify_device_session, verify_ingestion_device_key
 from app.db import get_db
-from app.models import DeviceModel, DeviceSessionModel
+from app.models import DeviceModel, DeviceSessionModel, PushTokenModel
 from app.routers.readings import now_local
-from app.schemas import DeviceAdminOut, DeviceConnectIn, DeviceConnectOut, DeviceNameUpdate, DeviceOut, DeviceRegisterIn, DeviceRegistrationOut, ReadingStateUpdate
+from app.schemas import DeviceAdminOut, DeviceConnectIn, DeviceConnectOut, DeviceNameUpdate, DeviceOut, DeviceRegisterIn, DeviceRegistrationOut, PushTokenIn, ReadingStateUpdate
+from app.notifications import send_to_device
 
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -159,7 +160,76 @@ def disconnect_device(
         .where(DeviceSessionModel.token == token, DeviceSessionModel.device_id == device_id)
         .values(revoked=True)
     )
+    db.execute(delete(PushTokenModel).where(PushTokenModel.session_token == token))
     db.commit()
+
+
+@router.post("/{device_id}/push-token")
+def register_push_token(
+    device_id: str,
+    payload: PushTokenIn,
+    request: Request,
+    session_device_id: str = Depends(verify_device_session),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    if device_id != session_device_id:
+        raise HTTPException(status_code=403, detail="Session is not authorized for this device")
+    existing = db.scalar(select(PushTokenModel).where(
+        PushTokenModel.device_id == device_id, PushTokenModel.fcm_token == payload.token
+    ))
+    if existing is None:
+        db.add(PushTokenModel(
+            device_id=device_id,
+            session_token=request.state.device_session_token,
+            fcm_token=payload.token,
+            created_at=now_local(),
+        ))
+    else:
+        existing.session_token = request.state.device_session_token
+    db.commit()
+    return {"registered": True}
+
+
+@router.delete("/{device_id}/push-token", status_code=status.HTTP_204_NO_CONTENT)
+def delete_push_tokens(
+    device_id: str,
+    request: Request,
+    session_device_id: str = Depends(verify_device_session),
+    db: Session = Depends(get_db),
+) -> None:
+    if device_id != session_device_id:
+        raise HTTPException(status_code=403, detail="Session is not authorized for this device")
+    db.execute(delete(PushTokenModel).where(
+        PushTokenModel.device_id == device_id,
+        PushTokenModel.session_token == request.state.device_session_token,
+    ))
+    db.commit()
+
+
+@router.post("/{device_id}/push-test")
+@limiter.limit("5/minute")
+def push_test(
+    device_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    session_device_id: str = Depends(verify_device_session),
+    db: Session = Depends(get_db),
+) -> dict[str, int]:
+    if device_id != session_device_id:
+        raise HTTPException(status_code=403, detail="Session is not authorized for this device")
+    token_rows = db.scalars(select(PushTokenModel).where(
+        PushTokenModel.device_id == device_id,
+        PushTokenModel.session_token == request.state.device_session_token,
+    )).all()
+    background_tasks.add_task(
+        send_to_device,
+        device_id,
+        "TilaPulse",
+        "TilaPulse test notification",
+        {"type": "test", "device_id": device_id},
+        tag="test",
+    )
+    return {"sent": len(token_rows)}
 
 
 @admin_router.post("/{device_id}/rotate-key", response_model=DeviceRegistrationOut)
@@ -176,6 +246,7 @@ def rotate_device_key(
         .where(DeviceSessionModel.device_id == device_id)
         .values(revoked=True)
     )
+    db.execute(delete(PushTokenModel).where(PushTokenModel.device_id == device_id))
     db.commit()
     db.refresh(device)
     return DeviceRegistrationOut(**public_device(device).model_dump(), device_key=raw_key)

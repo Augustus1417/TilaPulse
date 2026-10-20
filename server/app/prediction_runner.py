@@ -2,7 +2,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import PredictionModel, ReadingModel
+from app.models import DeviceModel, PredictionModel, ReadingModel
+from app.notifications import submit_notification
 from app.prediction import PredictionService
 from app.routers.readings import now_local
 
@@ -39,6 +40,11 @@ def run_prediction(
     ]
     result = prediction_service.predict(record_data)
     risk_score = float(result["risk_score"])
+    previous = db.scalar(
+        select(PredictionModel)
+        .where(PredictionModel.device_id == device_id)
+        .order_by(PredictionModel.id.desc())
+    )
     prediction = PredictionModel(
         device_id=device_id,
         risk_score=risk_score,
@@ -51,4 +57,14 @@ def run_prediction(
     db.add(prediction)
     db.commit()
     db.refresh(prediction)
+    if prediction.risk_label == "high" and (previous is None or previous.risk_label != "high"):
+        device = db.get(DeviceModel, device_id)
+        if device is not None:
+            submit_notification(
+                device_id,
+                device.name,
+                f"Disease risk is now high ({prediction.risk_score * 100:.0f}%)",
+                {"type": "risk_high", "device_id": device_id},
+                "risk",
+            )
     return prediction

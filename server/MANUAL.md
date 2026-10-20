@@ -6,6 +6,8 @@ The backend is a long-running FastAPI/ASGI service. It uses SQLAlchemy storage c
 
 Copy `.env.example` to `.env` and set `DATABASE_URL` to the Supabase connection string and `ADMIN_API_KEY` to a private operations secret. The older `DB_CONNECTION_STRING` name is accepted as a compatibility alias, but new deployments should use `DATABASE_URL`. `PREDICTION_INTERVAL_MINUTES` controls scheduled prediction frequency (default `60`), `PREDICTION_MIN_READINGS` sets the scheduled minimum (default `20`), and `SCHEDULER_ENABLED` enables or disables scheduled predictions (default `true`).
 
+Push notifications use Firebase Admin FCM HTTP v1 for Android. Set `PUSH_ENABLED=false` to disable push while keeping the API fully operational. For local development, set `GOOGLE_APPLICATION_CREDENTIALS` to a Firebase service-account JSON file. For hosting platforms, set `FIREBASE_CREDENTIALS_JSON` to the complete service-account JSON string (paste it as a secret; never commit it). `ANDROID_CHANNEL_ID` defaults to `pond_alerts`, `ALERT_NOTIFY_COOLDOWN_MINUTES` defaults to `30`, and `OFFLINE_NOTIFY_AFTER_MINUTES` defaults to `5`. If push is enabled without credentials, the service logs one warning and treats sends as no-ops.
+
 Run locally from `server`:
 
 ```text
@@ -39,6 +41,8 @@ flutter build apk --dart-define=API_BASE_URL=https://your-service.onrender.com
 - `GET /api/devices` lists registered devices without keys.
 - `POST /api/devices/connect` accepts `device_id` and `device_key`, then returns an opaque bearer session token. Failed attempts return a generic error and are rate-limited.
 - `DELETE /api/devices/disconnect` revokes the current bearer session.
+- `POST /api/devices/{device_id}/push-token` registers or updates an Android FCM token for the current session; `DELETE` removes only that session's tokens.
+- `POST /api/devices/{device_id}/push-test` sends a rate-limited test notification to the current session's registered tokens.
 - `GET /api/devices/{device_id}/command` accepts `X-Device-Key`, updates `last_seen`, and returns the current `reading_enabled` state for firmware polling.
 - `PATCH /api/devices/{device_id}/reading-state` updates `reading_enabled` for the device associated with the bearer session.
 - `PATCH /api/devices/{device_id}/name` updates the trimmed device name for the device associated with the bearer session. Names are limited to 50 characters and cannot contain control characters.

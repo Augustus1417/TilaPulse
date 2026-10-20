@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.db import Base, SessionLocal, engine
 from app.main import app
-from app.models import AlertModel, DeviceModel, DeviceSessionModel, PredictionModel, ReadingModel
+from app.models import AlertModel, DeviceModel, DeviceSessionModel, NotificationLogModel, PredictionModel, PushTokenModel, ReadingModel
 from app.routers.devices import limiter
 
 
@@ -17,6 +17,8 @@ def client():
     limiter.reset()
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
+        db.query(PushTokenModel).delete()
+        db.query(NotificationLogModel).delete()
         db.query(DeviceSessionModel).delete()
         db.query(AlertModel).delete()
         db.query(PredictionModel).delete()
