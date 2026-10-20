@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:client/state/device_state.dart';
 import 'package:client/pages/connect_device_page.dart';
+import 'package:client/widgets/tilapulse_logo.dart';
 
 const brandTeal = Color(0xFF006666);
 const waterBlue = Color(0xFF0099CC);
@@ -64,72 +65,6 @@ class StatusPill extends StatelessWidget {
   );
 }
 
-class RiskGauge extends StatelessWidget {
-  const RiskGauge({super.key, required this.score, required this.tone});
-  final int score;
-  final StatusTone tone;
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      SizedBox(
-        height: 125,
-        width: 150,
-        child: CustomPaint(
-          painter: _GaugePainter(score / 100, tone.color),
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  '$score',
-                  style: Theme.of(context).textTheme.displaySmall
-                      ?.copyWith(fontSize: 48, fontWeight: FontWeight.w800),
-                ),
-                Text('%', style: Theme.of(context).textTheme.bodyMedium),
-              ],
-            ),
-          ),
-        ),
-      ),
-      StatusPill(
-        label: score < 30
-            ? 'Low Risk'
-            : score < 60
-            ? 'Moderate Risk'
-            : 'High Risk',
-        tone: tone,
-      ),
-    ],
-  );
-}
-
-class _GaugePainter extends CustomPainter {
-  _GaugePainter(this.progress, this.color);
-  final double progress;
-  final Color color;
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height * .72);
-    final rect = Rect.fromCircle(center: center, radius: size.width * .36);
-    final track = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 10
-      ..strokeCap = StrokeCap.round
-      ..color = outlineVariant.withValues(alpha: .3);
-    final value = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 10
-      ..strokeCap = StrokeCap.round
-      ..color = color;
-    canvas.drawArc(rect, 3.14, -3.14, false, track);
-    canvas.drawArc(rect, 3.14, -3.14 * progress.clamp(0, 1), false, value);
-  }
-
-  @override
-  bool shouldRepaint(covariant _GaugePainter oldDelegate) =>
-      oldDelegate.progress != progress || oldDelegate.color != color;
-}
-
 class EmptyState extends StatelessWidget {
   const EmptyState({super.key, required this.title, required this.body});
   final String title;
@@ -163,12 +98,12 @@ class EmptyState extends StatelessWidget {
 class PageHeader extends StatelessWidget {
   const PageHeader({
     super.key,
-    required this.title,
+    this.title,
     this.onRefresh,
     this.refreshing = false,
     this.showSwitcher = true,
   });
-  final String title;
+  final String? title;
   final VoidCallback? onRefresh;
   final bool refreshing;
   final bool showSwitcher;
@@ -180,17 +115,7 @@ class PageHeader extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Icon(Icons.waves, size: 34, color: brandTeal),
-            const SizedBox(width: 8),
-            Text(
-              'TilaPulse',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                color: brandTeal,
-                fontSize: 25,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const Spacer(),
+            const Expanded(child: TilaPulseLogo()),
             if (onRefresh != null)
               IconButton(
                 onPressed: refreshing ? null : onRefresh,
@@ -207,8 +132,10 @@ class PageHeader extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         if (showSwitcher) const DeviceSwitcher(),
-        const SizedBox(height: 16),
-        Text(title, style: Theme.of(context).textTheme.headlineLarge),
+        if (title != null) ...[
+          const SizedBox(height: 16),
+          Text(title!, style: Theme.of(context).textTheme.headlineLarge),
+        ],
       ],
     ),
   );
