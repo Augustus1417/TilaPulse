@@ -99,6 +99,7 @@ class RiskPageState extends State<RiskPage> {
             onAssess: _runAssessment,
             assessing: _assessing,
             error: _assessmentError,
+            onRefresh: refresh,
           );
         }
         if (!snapshot.hasData && _prediction == null) {
@@ -238,19 +239,26 @@ class _NoAssessmentState extends StatelessWidget {
   const _NoAssessmentState({
     required this.onAssess,
     required this.assessing,
+    required this.onRefresh,
     this.error,
   });
   final VoidCallback onAssess;
   final bool assessing;
+  final Future<void> Function() onRefresh;
   final String? error;
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+  Widget build(BuildContext context) => ListView(
+    children: [
+      PageHeader(
+        title: 'Disease Risk',
+        onRefresh: onRefresh,
+      ),
+      Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
           const RiskGauge(),
           const SizedBox(height: 16),
           Text(
@@ -285,8 +293,9 @@ class _NoAssessmentState extends StatelessWidget {
                 : const Icon(Icons.refresh),
             label: Text(assessing ? 'Assessing...' : 'Assess Risk Now'),
           ),
-        ],
+          ],
+        ),
       ),
-    ),
+    ],
   );
 }

@@ -5,6 +5,7 @@ import 'package:client/models/alert.dart';
 import 'package:client/models/device.dart';
 import 'package:client/models/reading.dart';
 import 'package:client/models/risk_prediction.dart';
+import 'package:client/models/reading_series.dart';
 import 'package:client/services/secure_token_storage.dart';
 import 'package:http/http.dart' as http;
 
@@ -215,6 +216,19 @@ class ApiService {
           ) as List<dynamic>)
           .map((item) => Reading.fromJson(item as Map<String, dynamic>))
           .toList();
+
+  Future<ReadingSeries> fetchReadingSeries(
+    String deviceId, {
+    String range = '24h',
+  }) async =>
+      ReadingSeries.fromJson(
+        await _request(
+          'GET',
+          '/api/readings/series',
+          query: {'device_id': deviceId, 'range': range},
+          deviceId: deviceId,
+        ) as Map<String, dynamic>,
+      );
 
   Future<RiskPrediction> getLatestRisk(String deviceId) async =>
       RiskPrediction.fromJson(

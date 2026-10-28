@@ -61,9 +61,12 @@ class HomePageState extends State<HomePage> {
         if (snapshot.hasError) {
           if (snapshot.error is ApiException &&
               (snapshot.error as ApiException).statusCode == 404) {
-            return _NoRiskAssessmentState(onOpenRisk: _openRisk);
+            return _NoRiskAssessmentState(
+              onOpenRisk: _openRisk,
+              onRefresh: _refresh,
+            );
           }
-          return _ErrorState(error: snapshot.error);
+          return _ErrorState(error: snapshot.error, onRefresh: _refresh);
         }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
@@ -149,49 +152,62 @@ class HomePageState extends State<HomePage> {
 }
 
 class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.error});
+  const _ErrorState({required this.error, required this.onRefresh});
   final Object? error;
+  final VoidCallback onRefresh;
   @override
-  Widget build(BuildContext context) => EmptyState(
-    title: 'Unable to load pond data',
-    body: error is ApiException && (error as ApiException).statusCode == 404
-        ? 'No stored risk assessment is available yet. Run one from the Risk page.'
-        : 'Check the API connection and try again.',
+  Widget build(BuildContext context) => ListView(
+    children: [
+      PageHeader(onRefresh: onRefresh, title: null),
+      EmptyState(
+        title: 'Unable to load pond data',
+        body: error is ApiException && (error as ApiException).statusCode == 404
+            ? 'No stored risk assessment is available yet. Run one from the Risk page.'
+            : 'Check the API connection and try again.',
+      ),
+    ],
   );
 }
 
 class _NoRiskAssessmentState extends StatelessWidget {
-  const _NoRiskAssessmentState({required this.onOpenRisk});
+  const _NoRiskAssessmentState({
+    required this.onOpenRisk,
+    required this.onRefresh,
+  });
   final VoidCallback onOpenRisk;
+  final VoidCallback onRefresh;
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const RiskGauge(),
-          const SizedBox(height: 16),
-          Text(
-            'No risk assessment yet',
-            style: Theme.of(context).textTheme.titleLarge,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Open the Risk page to run the first assessment for this device.',
-            style: Theme.of(context).textTheme.bodyMedium,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 20),
-          FilledButton.icon(
-            onPressed: onOpenRisk,
-            icon: const Icon(Icons.stacked_line_chart),
-            label: const Text('Open Risk'),
-          ),
-        ],
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.only(bottom: 24),
+    children: [
+      PageHeader(onRefresh: onRefresh, title: null),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(32, 24, 32, 32),
+        child: Column(
+          children: [
+            const RiskGauge(),
+            const SizedBox(height: 16),
+            Text(
+              'No risk assessment yet',
+              style: Theme.of(context).textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Open the Risk page to run the first assessment for this device.',
+              style: Theme.of(context).textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: onOpenRisk,
+              icon: const Icon(Icons.stacked_line_chart),
+              label: const Text('Open Risk'),
+            ),
+          ],
+        ),
       ),
-    ),
+    ],
   );
 }

@@ -46,9 +46,14 @@ class AlertsPageState extends State<AlertsPage> {
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return const EmptyState(
-            title: 'Alerts are unavailable',
-            body: 'The server could not load alerts for this device.',
+          return ListView(
+            children: [
+              PageHeader(title: 'Alerts', onRefresh: _refreshAlerts),
+              const EmptyState(
+                title: 'Alerts are unavailable',
+                body: 'The server could not load alerts for this device.',
+              ),
+            ],
           );
         }
         if (!snapshot.hasData) {
