@@ -67,3 +67,14 @@ def migrate_auth_schema() -> None:
                 connection.execute(
                     text("ALTER TABLE predictions ADD COLUMN source VARCHAR(20) NOT NULL DEFAULT 'manual'")
                 )
+
+    if inspector.has_table("readings"):
+        indexes = {index["name"] for index in inspector.get_indexes("readings")}
+        if "ix_readings_device_timestamp" not in indexes:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_readings_device_timestamp "
+                        "ON readings (device_id, timestamp)"
+                    )
+                )

@@ -3,12 +3,11 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.core.security import hash_device_key, verify_admin_key, verify_device_key, verify_device_session, verify_ingestion_device_key
 from app.db import get_db
 from app.models import DeviceModel, DeviceSessionModel, PushTokenModel
@@ -19,9 +18,6 @@ from app.notifications import send_to_device
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 admin_router = APIRouter(prefix="/api/admin/devices", tags=["admin"])
-limiter = Limiter(key_func=get_remote_address)
-
-
 def is_device_online(device: DeviceModel) -> bool:
     online = False
     if device.last_seen is not None:

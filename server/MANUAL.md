@@ -48,6 +48,7 @@ flutter build apk --dart-define=API_BASE_URL=https://your-service.onrender.com
 - `PATCH /api/devices/{device_id}/name` updates the trimmed device name for the device associated with the bearer session. Names are limited to 50 characters and cannot contain control characters.
 - `POST /api/readings` accepts sensor fields and requires `X-Device-Key`. Devices must already be registered.
 - `GET /api/readings?device_id=...&limit=...` and `GET /api/readings/latest?device_id=...` require a bearer token for the same device.
+- `GET /api/readings/series?device_id=...&range=24h` returns SQL-bucketed UTC sensor summaries. Supported ranges are `1h`, `24h`, `7d`, and `30d`; it requires a bearer token for the same device and is limited to 60 requests per minute per client address.
 - `GET /api/devices/{device_id}/alerts` lists active threshold alerts and `DELETE /api/devices/{device_id}/alerts/{alert_id}` resolves one.
 - `POST /api/devices/{device_id}/predict` explicitly runs LSTM/BOCPD fusion once for the device's stored readings, persists the assessment, and requires a bearer token for the same device.
 - `GET /api/devices/{device_id}/risk/latest` returns the latest stored assessment without recomputing it; it returns `404` until the first explicit assessment.
@@ -56,6 +57,19 @@ flutter build apk --dart-define=API_BASE_URL=https://your-service.onrender.com
 - `GET /api/health` reports service status and storage dialect.
 
 Timestamps are generated in `Asia/Manila` with `YYYY-MM-DD HH:MM:SS` formatting. The shipped checkpoint is trained on synthetic data and is for development only.
+
+For an authenticated series request:
+
+```text
+curl -H "Authorization: Bearer <device-session-token>" "https://your-service.example/api/readings/series?device_id=pond-a&range=24h"
+```
+
+If the existing Supabase database predates the composite index migration, run:
+
+```sql
+CREATE INDEX IF NOT EXISTS ix_readings_device_timestamp
+ON readings (device_id, timestamp);
+```
 
 ## Reading Control
 

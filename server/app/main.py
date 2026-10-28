@@ -6,6 +6,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.db import Base, engine, migrate_auth_schema
 from app.prediction import PredictionService
 from app.routers import alerts, devices, health, predict, readings
@@ -15,8 +16,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    migrate_auth_schema()
     Base.metadata.create_all(bind=engine)
+    migrate_auth_schema()
     prediction_service = PredictionService(settings.lstm_model_path, settings.prediction_alpha, settings.prediction_beta, settings.prediction_window_size)
     try:
         prediction_service.load_model()
@@ -53,7 +54,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="TilaPulse Sensor API", version="1.0.0", lifespan=lifespan)
-app.state.limiter = devices.limiter
+app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,

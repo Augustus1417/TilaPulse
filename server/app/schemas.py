@@ -14,6 +14,37 @@ class ReadingOut(ReadingIn):
     timestamp: str
 
 
+class SeriesMetricOut(BaseModel):
+    avg: float
+    min: float
+    max: float
+
+
+class SeriesPointOut(BaseModel):
+    t: str
+    count: int
+    temperature: SeriesMetricOut
+    ph: SeriesMetricOut
+    dissolved_oxygen: SeriesMetricOut
+
+
+class ThresholdOut(BaseModel):
+    min: float
+    max: float | None
+
+
+class ReadingSeriesOut(BaseModel):
+    device_id: str
+    range: str
+    bucket_seconds: int
+    from_: str = Field(alias="from")
+    to: str
+    points: list[SeriesPointOut]
+    thresholds: dict[str, ThresholdOut]
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class AlertOut(BaseModel):
     id: int
     device_id: str
