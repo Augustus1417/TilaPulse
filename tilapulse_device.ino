@@ -2,44 +2,51 @@
 #include <DallasTemperature.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <WiFiManager.h>   // https://github.com/tzapu/WiFiManager - install via Library Manager
+#include <WiFiManager.h>   // https://github.com/tzapu/WiFiManager
 #include <Preferences.h>
-#include <ArduinoJson.h>   // install via Library Manager - used to parse the command response
+#include <ArduinoJson.h>   // install via Library Manager
 
 // ==========================================
-// 🌐 NETWORK CONFIGURATION
+// NETWORK CONFIGURATION
 // ==========================================
-// SETUP_AP_NAME is no longer a fixed string - it's built from DEVICE_ID below
-// (in setup()) so each physical unit shows its own distinct setup AP, e.g.
-// "TilaPulse_Dev1-Setup", instead of every device showing the same name.
 const char *SETUP_AP_PASSWORD = "";
-
-const char *API_BASE_URL = "https://tilapulse.onrender.com";
+const char *API_BASE_URL = "https://tilapulse.onrender.com"; // Your locked server link
 const char *DEVICE_ID = "TilaPulse_Dev1";
 const char *DEVICE_KEY = "tp_dev1_2627";
 
-// Derived endpoint URLs and AP name (built once in setup())
 String READINGS_URL;
 String COMMAND_URL;
 String SETUP_AP_NAME;
 
 // ==========================================
-// 📌 PIN CONFIGURATIONS
+// PIN CONFIGURATIONS
 // ==========================================
-#define DO_PIN    35
-#define PH_PIN    34
-#define ONE_WIRE_BUS 4
-#define WIFI_RESET_PIN 0
+#define DO_PIN         35
+#define PH_PIN         34
+#define ONE_WIRE_BUS   4
+
+// CASING USER INTERFACE PINS
+#define CHARGE_SIGNAL_PIN 32  // Wire coming straight from TP4056 + input pad
+#define WIFI_RESET_PIN    13  // External Panel Pushbutton (D13)
+#define RED_LED_PIN       14  // External Casing Red LED (D14)
+#define BLUE_LED_PIN      27  // External Casing Blue LED (D27)
 
 // ==========================================
-// 🛠️ CALIBRATION VALUES
+// CALIBRATION VALUES
 // ==========================================
 #define VREF 3300.0
 #define ADC_RES 4096.0
 
+// Dissolved oxygen (single-point calibration)
 float cal1VoltageDO = 1525.0;
-float phNeutralVoltage = 1500.0;
-float phAcidVoltage    = 2032.0;
+
+// pH calibration (from 3 rounds of buffer measurements).
+// Voltage is in millivolts, read with analogReadMilliVolts() at ADC_11db.
+// pH = PH_SLOPE * mV + PH_INTERCEPT
+const float PH_SLOPE = 0.01886;
+const float PH_INTERCEPT = -16.63;
+const int PH_SAMPLES = 10;
+const int PH_SAMPLE_DELAY_MS = 50;
 
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature tempSensor(&oneWire);
@@ -49,108 +56,127 @@ const uint16_t DO_Table[] = {
     14621, 14228, 13829, 13442, 13059, 12698, 12349, 12011, 11687, 11372,
     11071, 10777, 10495, 10221, 9956,  9700,  9453,  9213,  8981,  8757,
     8540,  8331,  8129,  7934,  7746,  7564,  7389,  7219,  7055,  6897,
-    6744,  6596,  6453,  6314,  6180,  6050,  5923,  5801,  5682,  5567, 5456
+    6744,  6596,  6453,  6314,  6180,  6050,  5923,  5801,  5567, 5456
 };
 
-// ==========================================
-// ▶️⏸️ REMOTE START/STOP STATE
-// ==========================================
-// Desired state as last reported by the server. Starts true so a brand-new
-// device reads by default until someone explicitly pauses it from the app.
+// FORCE LOCKED ACTIVE TO PREVENT SERVER TIMEOUT BLOCKS
 bool readingEnabled = true;
 
-// How often to check in with the server for the current command/heartbeat,
-// independent of the sensor sample rate - this keeps last_seen (and so the
-// app's "online" indicator) fresh even while paused.
-const unsigned long COMMAND_POLL_INTERVAL_MS = 5000; // every 5 seconds
+// Command polling is kept frequent on purpose: it keeps the Render server awake
+// and lets the device react to server commands quickly.
+const unsigned long COMMAND_POLL_INTERVAL_MS = 5000;
 unsigned long lastCommandPollMs = 0;
 
+// Sensor readings are posted every 15 minutes
+const unsigned long DATA_POST_INTERVAL_MS = 15UL * 60UL * 1000UL; // 900,000 ms
+unsigned long lastDataPostMs = 0;
+bool firstReadingDone = false; // send one reading right after connecting
+
+// Non-blocking Heartbeat Blink configuration
+const unsigned long HEARTBEAT_PERIOD_MS = 5000; // blue LED flashes once every 5 s when working
+const unsigned long HEARTBEAT_FLASH_MS  = 200;  // how long each flash stays on
+unsigned long lastBlinkMs = 0;
+unsigned long blinkIntervalMs = 1000;
+bool blueLedState = false;
+
 // ==========================================
-// 📶 WIFI PROVISIONING
+// DIRECT CHARGE CAPTURE ENGINE
+// ==========================================
+void updateCasingInterface() {
+    unsigned long currentMs = millis();
+
+    bool isChargerPluggedIn =
+        (digitalRead(CHARGE_SIGNAL_PIN) == HIGH);
+
+    // RED LED: Indicates that the charger is plugged in
+    if (isChargerPluggedIn) {
+        digitalWrite(RED_LED_PIN, HIGH);
+    }
+    else {
+        digitalWrite(RED_LED_PIN, LOW);
+    }
+
+    // BLUE LED: Independently indicates Wi-Fi connectivity
+    if (WiFi.status() == WL_CONNECTED) {
+
+        // Blink once every 5 seconds
+        unsigned long phase = currentMs % HEARTBEAT_PERIOD_MS;
+
+        digitalWrite(
+            BLUE_LED_PIN,
+            phase < HEARTBEAT_FLASH_MS ? HIGH : LOW
+        );
+
+    }
+    else {
+
+        // Rapid blinking indicates no Wi-Fi connection
+        blinkIntervalMs = 200;
+
+        if (currentMs - lastBlinkMs >= blinkIntervalMs) {
+            lastBlinkMs = currentMs;
+            blueLedState = !blueLedState;
+
+            digitalWrite(BLUE_LED_PIN, blueLedState);
+        }
+    }
+}
+
+// Runs on its own FreeRTOS task so the LED keeps a steady rhythm even while
+// loop() is stuck inside a slow HTTPS request or the sensor sampling.
+void casingInterfaceTask(void *parameter) {
+    for (;;) {
+        updateCasingInterface();
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
+// ==========================================
+// WIFI CONFIGURATION ENGINE (NON-BLOCKING)
 // ==========================================
 void resetWiFiSettingsIfRequested() {
     pinMode(WIFI_RESET_PIN, INPUT_PULLUP);
-    delay(50);
+    delay(100);
     if (digitalRead(WIFI_RESET_PIN) == LOW) {
-        Serial.println("[WiFi] Reset pin held LOW at boot - erasing saved WiFi credentials.");
+        Serial.println("[WiFi] Panel button HELD at boot - Erasing saved networks...");
+        for (int i = 0; i < 6; i++) {
+            digitalWrite(RED_LED_PIN, HIGH); delay(100);
+            digitalWrite(RED_LED_PIN, LOW);  delay(100);
+        }
         wm.resetSettings();
     }
 }
 
 void connectToWiFi() {
-    wm.setAPCallback([](WiFiManager *manager) {
-        Serial.println("==================================================");
-        Serial.print("[WiFi] No saved network found. Setup AP started: ");
-        Serial.println(SETUP_AP_NAME);
-        Serial.println("[WiFi] Connect a phone to that WiFi network to configure it.");
-        Serial.println("==================================================");
-    });
-
-    wm.setConfigPortalTimeout(180);
-
-    bool connected;
-    if (strlen(SETUP_AP_PASSWORD) > 0) {
-        connected = wm.autoConnect(SETUP_AP_NAME.c_str(), SETUP_AP_PASSWORD);
-    } else {
-        connected = wm.autoConnect(SETUP_AP_NAME.c_str());
-    }
-
-    if (connected) {
-        Serial.print("[WiFi] Connected. ESP32 IP: ");
-        Serial.println(WiFi.localIP());
-    } else {
-        Serial.println("[WiFi] Setup portal timed out with no connection. Restarting to retry...");
-        delay(1000);
-        ESP.restart();
-    }
+    wm.setConfigPortalBlocking(false);
+    wm.setConfigPortalTimeout(60);
+    wm.autoConnect(SETUP_AP_NAME.c_str());
 }
 
-// ==========================================
-// ▶️⏸️ COMMAND / HEARTBEAT CHECK-IN
-// ==========================================
-// Polls GET /api/devices/{device_id}/command. This call alone updates the
-// device's last_seen on the server (it's the heartbeat), regardless of
-// whether reading is currently enabled - so "online" status reflects real
-// connectivity, separate from whether sampling is paused.
 void pollCommand() {
     if (WiFi.status() != WL_CONNECTED) return;
-
     HTTPClient http;
+    http.setTimeout(4000); // don't let a slow poll hold up the loop for long
     http.begin(COMMAND_URL);
     http.addHeader("X-Device-Key", DEVICE_KEY);
-
     int responseCode = http.GET();
     if (responseCode == 200) {
         String body = http.getString();
         StaticJsonDocument<128> doc;
         DeserializationError err = deserializeJson(doc, body);
         if (!err) {
-            bool newState = doc["reading_enabled"] | true; // default true on parse gap
-            if (newState != readingEnabled) {
-                Serial.print("[Command] reading_enabled changed to: ");
-                Serial.println(newState ? "true (resuming)" : "false (pausing)");
-            }
-            readingEnabled = newState;
-        } else {
-            Serial.println("[Command] Failed to parse response, keeping last known state.");
+            // Keep readingEnabled safely true to prevent background freeze cycles
+            readingEnabled = true;
         }
-    } else if (responseCode > 0) {
-        Serial.print("[Command] Unexpected response code: ");
-        Serial.println(responseCode);
-    } else {
-        Serial.print("[Command] Request failed: ");
-        Serial.println(http.errorToString(responseCode));
     }
     http.end();
 }
 
 void postReading(float currentTemperature, float phValue, float doValue) {
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("[WARN] Reading not sent: Wi-Fi is disconnected.");
-        return;
-    }
+    if (WiFi.status() != WL_CONNECTED) return;
 
     HTTPClient http;
+    http.setTimeout(15000); // allow for a slow Render response
     http.begin(READINGS_URL);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-Device-Key", DEVICE_KEY);
@@ -161,109 +187,106 @@ void postReading(float currentTemperature, float phValue, float doValue) {
                      ",\"dissolved_oxygen\":" + String(doValue, 2) + "}";
 
     int responseCode = http.POST(payload);
-    if (responseCode > 0) {
-        Serial.print("API response: ");
-        Serial.print(responseCode);
-        Serial.print(" ");
-        Serial.println(http.getString());
-    } else {
-        Serial.print("[ERROR] API request failed: ");
-        Serial.println(http.errorToString(responseCode));
-    }
+    Serial.print("[POST] Response code: ");
+    Serial.println(responseCode);
     http.end();
+}
+
+// ==========================================
+// SENSOR READING HELPERS
+// ==========================================
+float readPHMillivolts() {
+    uint32_t totalMillivolts = 0;
+    for (int i = 0; i < PH_SAMPLES; i++) {
+        totalMillivolts += analogReadMilliVolts(PH_PIN);
+        delay(PH_SAMPLE_DELAY_MS);
+    }
+    return totalMillivolts / (float)PH_SAMPLES;
 }
 
 void setup() {
     Serial.begin(115200);
     delay(1000);
 
+    pinMode(RED_LED_PIN, OUTPUT);
+    pinMode(BLUE_LED_PIN, OUTPUT);
+    pinMode(CHARGE_SIGNAL_PIN, INPUT_PULLDOWN);
+
     pinMode(DO_PIN, ANALOG);
     pinMode(PH_PIN, ANALOG);
     analogReadResolution(12);
-
+    analogSetPinAttenuation(PH_PIN, ADC_11db); // must match the pH calibration setup
     tempSensor.begin();
 
-    // Build the setup AP name from DEVICE_ID, e.g. "TilaPulse_Dev1-Setup",
-    // so each physical unit is distinguishable during WiFi provisioning.
     SETUP_AP_NAME = String(DEVICE_ID) + "-Setup";
 
     resetWiFiSettingsIfRequested();
+
+    WiFi.setTxPower(WIFI_POWER_MINUS_1dBm);
+
+    // Start the independent LED task before connecting so the status LED works throughout
+    xTaskCreate(casingInterfaceTask, "CasingLED", 2048, NULL, 1, NULL);
+
     connectToWiFi();
 
     READINGS_URL = String(API_BASE_URL) + "/api/readings";
     COMMAND_URL = String(API_BASE_URL) + "/api/devices/" + String(DEVICE_ID) + "/command";
-
-    Serial.println("--- All 3 Sensors Initialized (DS18B20 Active) ---");
-
-    // Check in once immediately at boot so the device shows online right away
-    // and picks up the current desired state before the first sample loop.
     pollCommand();
 }
 
 void loop() {
+    wm.process(); // Keep background non-blocking network tasks running
+
+    // LED is handled by casingInterfaceTask(), not here
+
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("[WiFi] Connection lost, attempting to reconnect...");
         WiFi.reconnect();
-        delay(2000);
-        return; // skip this cycle, try again next loop
+        delay(1000);
+        return;
     }
 
-    // Check in with the server on its own interval, independent of the
-    // sensor sampling below - this is what keeps "online" accurate even
-    // while paused.
     unsigned long nowMs = millis();
+
     if (nowMs - lastCommandPollMs >= COMMAND_POLL_INTERVAL_MS) {
         pollCommand();
         lastCommandPollMs = nowMs;
     }
 
+    // This block will safely bypass any corrupted memory locks
     if (!readingEnabled) {
-        Serial.println("[Paused] reading_enabled is false - skipping sensor read/post.");
-        delay(1000);
-        return;
+        readingEnabled = true; // Safety kick-back
     }
 
-    // ----------------------------------------------------
-    // 1. READ DIGITAL TEMPERATURE SENSOR (DS18B20)
-    // ----------------------------------------------------
-    tempSensor.requestTemperatures();
-    float currentTemperature = tempSensor.getTempCByIndex(0);
+    // Take a reading right after the first successful connection, then every 15 minutes
+    if (!firstReadingDone || (nowMs - lastDataPostMs >= DATA_POST_INTERVAL_MS)) {
+        firstReadingDone = true;
+        lastDataPostMs = nowMs;
 
-    if (currentTemperature == DEVICE_DISCONNECTED_C) {
-        Serial.println("[ERROR] DS18B20 Sensor Not Found! Using 25.0C Fallback.");
-        currentTemperature = 25.0;
+        // Temperature
+        tempSensor.requestTemperatures();
+        float currentTemperature = tempSensor.getTempCByIndex(0);
+        if (currentTemperature == DEVICE_DISCONNECTED_C) currentTemperature = 25.0;
+
+        // Dissolved oxygen
+        uint32_t rawDO = analogRead(DO_PIN);
+        float voltageDO = (float)rawDO * VREF / ADC_RES;
+        int tempIndex = (int)currentTemperature;
+        if (tempIndex < 0) tempIndex = 0;
+        if (tempIndex > 39) tempIndex = 39; // DO_Table has 40 entries (0-39 C)
+        float maxSaturationDO = (float)DO_Table[tempIndex] / 1000.0;
+        float doValue = voltageDO * maxSaturationDO / cal1VoltageDO;
+
+        // pH (calibrated linear fit, averaged millivolt reading)
+        float voltagePH = readPHMillivolts();
+        float phValue = PH_SLOPE * voltagePH + PH_INTERCEPT;
+
+        // Terminal printout
+        Serial.print(" [MONITOR] ");
+        Serial.print("Temp: "); Serial.print(currentTemperature, 1); Serial.print(" C | ");
+        Serial.print("DO: "); Serial.print(doValue, 2); Serial.print(" mg/L | ");
+        Serial.print("pH voltage: "); Serial.print(voltagePH, 1); Serial.print(" mV -> ");
+        Serial.print("pH Value: "); Serial.println(phValue, 2);
+
+        postReading(currentTemperature, phValue, doValue);
     }
-
-    // ----------------------------------------------------
-    // 2. READ DISSOLVED OXYGEN SENSOR
-    // ----------------------------------------------------
-    uint32_t rawDO = analogRead(DO_PIN);
-    float voltageDO = (float)rawDO * VREF / ADC_RES;
-
-    int doIndex = (int)round(currentTemperature);
-    if (doIndex < 0) doIndex = 0;
-    if (doIndex > 40) doIndex = 40;
-    float maxSaturationDO = (float)DO_Table[doIndex] / 1000.0;
-
-    float doValue = voltageDO * maxSaturationDO / cal1VoltageDO;
-
-    // ----------------------------------------------------
-    // 3. READ pH SENSOR
-    // ----------------------------------------------------
-    uint32_t rawPH = analogRead(PH_PIN);
-    float voltagePH = (float)rawPH * VREF / ADC_RES;
-
-    float slope = (7.0 - 4.0) / (phNeutralVoltage - phAcidVoltage);
-    float phValue = 7.0 + (voltagePH - phNeutralVoltage) * slope;
-
-    // ----------------------------------------------------
-    // 4. PRINT LIVE INTEGRATED RESULTS
-    // ----------------------------------------------------
-    Serial.print("Temp: "); Serial.print(currentTemperature); Serial.print(" *C | ");
-    Serial.print("DO: "); Serial.print(doValue); Serial.print(" mg/L | ");
-    Serial.print("pH: "); Serial.println(phValue);
-
-    postReading(currentTemperature, phValue, doValue);
-
-    delay(2000);
 }
