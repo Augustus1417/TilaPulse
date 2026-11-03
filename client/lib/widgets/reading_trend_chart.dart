@@ -93,10 +93,16 @@ class _ReadingTrendChartState extends State<ReadingTrendChart> {
   List<List<ReadingSeriesPoint>> _runs() {
     final points = widget.series.points;
     final runs = <List<ReadingSeriesPoint>>[];
+    final continuitySeconds = switch (widget.range) {
+      '1h' => 15 * 60,
+      '24h' => 6 * 60 * 60,
+      '7d' => 36 * 60 * 60,
+      _ => 7 * 24 * 60 * 60,
+    };
     for (final point in points) {
       if (runs.isEmpty ||
           point.time.difference(runs.last.last.time).inSeconds >
-              widget.series.bucketSeconds * 1.5) {
+              math.max(widget.series.bucketSeconds * 1.5, continuitySeconds)) {
         runs.add([point]);
       } else {
         runs.last.add(point);
@@ -183,6 +189,22 @@ class _ReadingTrendChartState extends State<ReadingTrendChart> {
     return 'Healthy: $minimum–$maximum$unit';
   }
 
+  double _dotRadius(ReadingSeriesMetric metric) {
+    final base = switch (widget.range) {
+      '1h' => 3.5,
+      '24h' => 2.75,
+      '7d' => 2.25,
+      _ => 1.75,
+    };
+    return _isFlagged(metric) ? base + .75 : base;
+  }
+
+  double _lineWidth() => switch (widget.range) {
+    '1h' => 2,
+    '24h' => 1.75,
+    _ => 1.5,
+  };
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -226,20 +248,23 @@ class _ReadingTrendChartState extends State<ReadingTrendChart> {
     final yInterval = _niceInterval(rawMaxY - rawMinY);
     final minY = (rawMinY / yInterval).floor() * yInterval;
     final maxY = (rawMaxY / yInterval).ceil() * yInterval;
-    final minX = widget.series.from.millisecondsSinceEpoch.toDouble();
-    final rangeMilliseconds =
-        widget.series.to.millisecondsSinceEpoch -
-        widget.series.from.millisecondsSinceEpoch;
-    final maxX =
-        widget.series.to.millisecondsSinceEpoch.toDouble() +
-        rangeMilliseconds * .03;
+    final dataMinX = widget.series.points.first.time.millisecondsSinceEpoch
+        .toDouble();
+    final dataMaxX = widget.series.points.last.time.millisecondsSinceEpoch
+        .toDouble();
+    final dataRange = dataMaxX - dataMinX;
+    final horizontalPadding = dataRange > 0
+        ? math.max(dataRange * .08, widget.series.bucketSeconds * 1000)
+        : math.max(
+            widget.series.bucketSeconds * 1000,
+            widget.series.to.difference(widget.series.from).inMilliseconds *
+                .02,
+          );
+    final minX = dataMinX - horizontalPadding;
+    final maxX = dataMaxX + horizontalPadding;
+    final rangeMilliseconds = maxX - minX;
     final xInterval = rangeMilliseconds / 4;
     final latestTone = _tone(widget.series.points.last.metrics[_key]!);
-    final healthyUpper = threshold.maximum ?? maxY;
-    final healthyMiddle = (threshold.minimum + healthyUpper) / 2;
-    final healthyTop = ((1 - ((healthyMiddle - minY) / (maxY - minY))) * 180)
-        .clamp(8, 170)
-        .toDouble();
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -271,190 +296,162 @@ class _ReadingTrendChartState extends State<ReadingTrendChart> {
               ),
               const SizedBox(height: 10),
               _selectors(),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
+              _healthyLegend(threshold),
+              const SizedBox(height: 10),
               SizedBox(
                 height: 240,
-                child: Stack(
-                  children: [
-                    LineChart(
-                      LineChartData(
-                        minX: minX,
-                        maxX: maxX,
-                        minY: minY,
-                        maxY: maxY,
-                        borderData: FlBorderData(show: false),
-                        clipData: const FlClipData.none(),
-                        gridData: FlGridData(
-                          drawVerticalLine: false,
-                          horizontalInterval: yInterval,
+                child: LineChart(
+                  LineChartData(
+                    minX: minX,
+                    maxX: maxX,
+                    minY: minY,
+                    maxY: maxY,
+                    borderData: FlBorderData(show: false),
+                    clipData: const FlClipData.all(),
+                    gridData: FlGridData(
+                      drawVerticalLine: false,
+                      horizontalInterval: yInterval,
+                    ),
+                    rangeAnnotations: RangeAnnotations(
+                      horizontalRangeAnnotations: [
+                        HorizontalRangeAnnotation(
+                          y1: threshold.minimum,
+                          y2: threshold.maximum ?? maxY,
+                          color: StatusTone.normal.color.withValues(
+                            alpha: theme.brightness == Brightness.dark
+                                ? .24
+                                : .16,
+                          ),
                         ),
-                        rangeAnnotations: RangeAnnotations(
-                          horizontalRangeAnnotations: [
-                            HorizontalRangeAnnotation(
-                              y1: threshold.minimum,
-                              y2: threshold.maximum ?? maxY,
-                              color: StatusTone.normal.color.withValues(
-                                alpha: theme.brightness == Brightness.dark
-                                    ? .24
-                                    : .16,
-                              ),
+                      ],
+                    ),
+                    titlesData: FlTitlesData(
+                      rightTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      topTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      leftTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          interval: yInterval,
+                          reservedSize: 42,
+                          getTitlesWidget: (value, meta) => Text(
+                            value.toStringAsFixed(
+                              widget.parameter == ReadingTrendParameter.ph
+                                  ? 1
+                                  : 0,
                             ),
-                          ],
+                            style: theme.textTheme.bodySmall,
+                          ),
                         ),
-                        titlesData: FlTitlesData(
-                          rightTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false),
-                          ),
-                          topTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false),
-                          ),
-                          leftTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                              showTitles: true,
-                              interval: yInterval,
-                              reservedSize: 42,
-                              getTitlesWidget: (value, meta) => Text(
-                                value.toStringAsFixed(
-                                  widget.parameter == ReadingTrendParameter.ph
-                                      ? 1
-                                      : 0,
-                                ),
+                      ),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 26,
+                          interval: xInterval,
+                          getTitlesWidget: (value, meta) {
+                            if (value == meta.min || value == meta.max) {
+                              return const SizedBox.shrink();
+                            }
+                            final tick = _tickSeconds() * 1000;
+                            final rounded = (value / tick).round() * tick;
+                            if ((value - rounded).abs() > tick * .5) {
+                              return const SizedBox.shrink();
+                            }
+                            return SizedBox(
+                              width: 58,
+                              child: Text(
+                                _timeLabel(rounded.toDouble()),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                softWrap: false,
+                                textAlign: TextAlign.center,
                                 style: theme.textTheme.bodySmall,
                               ),
-                            ),
-                          ),
-                          bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                              showTitles: true,
-                              reservedSize: 26,
-                              interval: xInterval,
-                              getTitlesWidget: (value, meta) {
-                                if (value == meta.min || value == meta.max) {
-                                  return const SizedBox.shrink();
-                                }
-                                final tick = _tickSeconds() * 1000;
-                                final rounded = (value / tick).round() * tick;
-                                if ((value - rounded).abs() > tick * .5) {
-                                  return const SizedBox.shrink();
-                                }
-                                return Text(
-                                  _timeLabel(rounded.toDouble()),
-                                  maxLines: 1,
-                                  softWrap: false,
-                                  style: theme.textTheme.bodySmall,
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                        lineTouchData: LineTouchData(
-                          touchTooltipData: LineTouchTooltipData(
-                            getTooltipItems: (spots) => spots
-                                .where((spot) => spot.barIndex % 3 == 2)
-                                .map((spot) {
-                                  final point = widget.series.points.firstWhere(
-                                    (item) =>
-                                        item.time.millisecondsSinceEpoch ==
-                                        spot.x.toInt(),
-                                  );
-                                  final metric = point.metrics[_key]!;
-                                  final tone = _tone(metric);
-                                  return LineTooltipItem(
-                                    '${_timeLabel(spot.x)}\n'
-                                    '${metric.average.toStringAsFixed(2)} $_unit\n'
-                                    '${metric.minimum.toStringAsFixed(2)}–'
-                                    '${metric.maximum.toStringAsFixed(2)} $_unit\n'
-                                    '${tone == StatusTone.normal
-                                        ? 'Normal'
-                                        : tone == StatusTone.warning
-                                        ? 'Low'
-                                        : 'High'}',
-                                    TextStyle(
-                                      color: tone.color,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  );
-                                })
-                                .toList(),
-                          ),
-                        ),
-                        lineBarsData: [
-                          for (final run in runs) ...[
-                            _line(
-                              run,
-                              (point) => point.metrics[_key]!.minimum,
-                              Colors.transparent,
-                            ),
-                            _line(
-                              run,
-                              (point) => point.metrics[_key]!.maximum,
-                              Colors.transparent,
-                            ),
-                            _line(
-                              run,
-                              (point) => point.metrics[_key]!.average,
-                              theme.colorScheme.primary,
-                              dots: FlDotData(
-                                show: true,
-                                getDotPainter: (spot, percent, bar, index) {
-                                  final point = run[index];
-                                  return FlDotCirclePainter(
-                                    radius:
-                                        _isFlagged(point.metrics[_key]!) ||
-                                            run.length == 1
-                                        ? 4
-                                        : 0,
-                                    color: _isFlagged(point.metrics[_key]!)
-                                        ? StatusTone.critical.color
-                                        : theme.colorScheme.primary,
-                                    strokeColor: Colors.white,
-                                    strokeWidth: 1.5,
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-                        ],
-                        betweenBarsData: [
-                          for (var index = 0; index < runs.length; index++)
-                            BetweenBarsData(
-                              fromIndex: index * 3,
-                              toIndex: index * 3 + 1,
-                              color: theme.colorScheme.primary.withValues(
-                                alpha: .10,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    Positioned(
-                      left: 48,
-                      top: healthyTop,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: StatusTone.normal.background.withValues(
-                            alpha: theme.brightness == Brightness.dark
-                                ? .90
-                                : .92,
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 3,
-                          ),
-                          child: Text(
-                            _healthyLabel(threshold),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: StatusTone.normal.color,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                            );
+                          },
                         ),
                       ),
                     ),
-                  ],
+                    lineTouchData: LineTouchData(
+                      touchTooltipData: LineTouchTooltipData(
+                        getTooltipItems: (spots) => spots
+                            .where((spot) => spot.barIndex % 3 == 2)
+                            .map((spot) {
+                              final point = widget.series.points.firstWhere(
+                                (item) =>
+                                    item.time.millisecondsSinceEpoch ==
+                                    spot.x.toInt(),
+                              );
+                              final metric = point.metrics[_key]!;
+                              final tone = _tone(metric);
+                              return LineTooltipItem(
+                                '${_timeLabel(spot.x)}\n'
+                                '${metric.average.toStringAsFixed(2)} $_unit\n'
+                                '${metric.minimum.toStringAsFixed(2)}–'
+                                '${metric.maximum.toStringAsFixed(2)} $_unit\n'
+                                '${tone == StatusTone.normal
+                                    ? 'Normal'
+                                    : tone == StatusTone.warning
+                                    ? 'Low'
+                                    : 'High'}',
+                                TextStyle(
+                                  color: tone.color,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              );
+                            })
+                            .toList(),
+                      ),
+                    ),
+                    lineBarsData: [
+                      for (final run in runs) ...[
+                        _line(
+                          run,
+                          (point) => point.metrics[_key]!.minimum,
+                          Colors.transparent,
+                        ),
+                        _line(
+                          run,
+                          (point) => point.metrics[_key]!.maximum,
+                          Colors.transparent,
+                        ),
+                        _line(
+                          run,
+                          (point) => point.metrics[_key]!.average,
+                          theme.colorScheme.primary,
+                          dots: FlDotData(
+                            show: true,
+                            getDotPainter: (spot, percent, bar, index) {
+                              final point = run[index];
+                              return FlDotCirclePainter(
+                                radius: _dotRadius(point.metrics[_key]!),
+                                color: _isFlagged(point.metrics[_key]!)
+                                    ? StatusTone.critical.color
+                                    : theme.colorScheme.primary,
+                                strokeColor: Colors.white,
+                                strokeWidth: 1.5,
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ],
+                    betweenBarsData: [
+                      for (var index = 0; index < runs.length; index++)
+                        BetweenBarsData(
+                          fromIndex: index * 3,
+                          toIndex: index * 3 + 1,
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: .10,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
               if (_sparseDataMessage() case final message?)
@@ -478,6 +475,44 @@ class _ReadingTrendChartState extends State<ReadingTrendChart> {
       ),
     );
   }
+
+  Widget _healthyLegend(ReadingSeriesThreshold threshold) => Row(
+    children: [
+      Container(
+        width: 12,
+        height: 12,
+        decoration: BoxDecoration(
+          color: StatusTone.normal.color.withValues(alpha: .18),
+          border: Border.all(color: StatusTone.normal.color, width: 1.5),
+          borderRadius: BorderRadius.circular(3),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text(
+          _healthyLabel(threshold),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: StatusTone.normal.color,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+      const SizedBox(width: 14),
+      Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 1),
+        ),
+      ),
+      const SizedBox(width: 6),
+      Text('Reading', style: Theme.of(context).textTheme.bodySmall),
+    ],
+  );
 
   Widget _selectors() => Column(
     children: [
@@ -586,7 +621,7 @@ class _ReadingTrendChartState extends State<ReadingTrendChart> {
     ],
     isCurved: false,
     color: color,
-    barWidth: color == Colors.transparent ? 0 : 2.5,
+    barWidth: color == Colors.transparent ? 0 : _lineWidth(),
     dotData: dots ?? const FlDotData(show: false),
     showingIndicators: const [],
   );
