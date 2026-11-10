@@ -2,8 +2,9 @@
   "alpha": 1.0,
   "beta": 0.0,
   "risk_thresholds": {
-    "low": 0.225,
-    "high": 0.45
+    "low": 0.25,
+    "high": 0.5
   },
-  "synthetic_data": true
+  "synthetic_data": true,
+  "evaluation_source": "water_parameters_labeled.csv"
 }

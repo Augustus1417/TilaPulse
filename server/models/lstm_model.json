@@ -13,25 +13,38 @@
       "dissolved_oxygen"
     ],
     "means": [
-      27.229134413797237,
-      7.212723292824848,
-      5.291038765980575
+      27.99607456140351,
+      8.73186403508772,
+      6.123530701754386
     ],
     "scales": [
-      0.8377895363873922,
-      0.18005833797616366,
-      0.4600577445214158
+      1.4117670292619005,
+      0.20799134180909726,
+      0.403571779383376
     ]
   },
   "training_config": {
     "seed": 42,
+    "validation_pr_auc": 0.5093190706234184,
+    "label_definition": "risk_level_code >= 1",
     "synthetic_data": true,
-    "validation_pr_auc": 0.6057959372090065
+    "source": "water_parameters_labeled.csv",
+    "source_labels": "synthetic_rule_based_v1",
+    "site_sequence_counts": {
+      "concrete_tank": 151,
+      "portaship": 176
+    }
   },
   "synthetic_data": true,
+  "source": "water_parameters_labeled.csv",
+  "source_labels": "synthetic_rule_based_v1",
+  "site_sequence_counts": {
+    "concrete_tank": 151,
+    "portaship": 176
+  },
   "split_sizes": {
-    "train_sequences": 210,
-    "validation_sequences": 45,
-    "test_sequences": 45
+    "train_sequences": 228,
+    "validation_sequences": 49,
+    "test_sequences": 50
   }
 }

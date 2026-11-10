@@ -1,22 +1,22 @@
-"""Evaluate synthetic-only baselines and the hybrid pipeline."""
+"""Evaluate the trained LSTM and hybrid pipeline on the labelled CSV."""
 
 from pathlib import Path
 import csv
 import json
-import random
 import sys
 import time
-from typing import Callable
 
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.bocpd import BOCPD
 from app.core.ai_config import AI_CONFIG
 from app.lstm import load_lstm_model
 from app.preprocessing import SensorPreprocessor
-from app.synthetic_data import generate_synthetic_sequences, records_to_dicts
+from app.synthetic_data import records_to_dicts
+from train_lstm import _csv_sequences, _temporal_split
 
 
 def _auc(labels: list[int], scores: list[float], precision_recall: bool = False) -> float:
@@ -58,11 +58,13 @@ def _summary(rows: list[list[float]]) -> list[float]:
 
 
 def main() -> None:
-    random.seed(42)
-    sequences = list(generate_synthetic_sequences(count=300, seed=42))
-    random.Random(42).shuffle(sequences)
-    train, validation, test = sequences[:210], sequences[210:255], sequences[255:]
-    model, metadata = load_lstm_model(Path(__file__).resolve().parents[1] / "models" / "lstm_model.pt")  # type: ignore[misc]
+    csv_path = Path(__file__).resolve().parents[2] / "water_parameters_labeled.csv"
+    sequences, site_counts = _csv_sequences(csv_path, AI_CONFIG.window_size, AI_CONFIG.horizon)
+    train, validation, test = _temporal_split(sequences, site_counts)
+    loaded = load_lstm_model(Path(__file__).resolve().parents[1] / "models" / "lstm_model.pt")
+    if loaded is None:
+        raise FileNotFoundError("trained LSTM checkpoint was not found")
+    model, metadata = loaded
     preprocessor = SensorPreprocessor.from_dict(metadata["scaler"], metadata["window_size"])
 
     latency_samples: list[float] = []
@@ -71,7 +73,7 @@ def main() -> None:
         labels, outputs = [], {"rule": [], "logistic": [], "lstm": [], "bocpd": []}
         with torch.no_grad():
             for records, label in items:
-                rows = preprocessor.window(records_to_dicts(records[:-AI_CONFIG.horizon]))
+                rows = preprocessor.window(records_to_dicts(records))
                 labels.append(label)
                 started = time.perf_counter()
                 outputs["lstm"].append(float(model(torch.tensor([rows], dtype=torch.float32)).item()))
@@ -117,6 +119,7 @@ def main() -> None:
         "alpha": best_alpha, "beta": 1 - best_alpha,
         "risk_thresholds": {"low": low_threshold, "high": high_threshold},
         "synthetic_data": True,
+        "evaluation_source": csv_path.name,
     }, indent=2), encoding="utf-8")
     with (output_dir / "metrics.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
@@ -130,7 +133,15 @@ def main() -> None:
             f'<text x="10" y="45">Hybrid area: {result["hybrid"][metric]:.3f}</text>'
             "</svg>", encoding="utf-8"
         )
-    print(json.dumps(result, indent=2))
+    print(json.dumps({
+        "source": csv_path.name,
+        "split_sizes": {
+            "train_sequences": len(train),
+            "validation_sequences": len(validation),
+            "test_sequences": len(test),
+        },
+        "metrics": result,
+    }, indent=2))
 
 
 if __name__ == "__main__":

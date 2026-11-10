@@ -17,8 +17,8 @@ The project currently supports:
   offline devices
 - Wi-Fi provisioning through the ESP32's WiFiManager setup portal
 
-The system is a development prototype. The included AI model is trained and
-evaluated on synthetic data only and must not be treated as evidence of real
+The system is a development prototype. The included AI model is trained on
+synthetic-rule-labelled data and must not be treated as evidence of real
 fish-disease prediction or field performance.
 
 ## Architecture
@@ -55,7 +55,7 @@ client/                     Flutter application
 server/                     FastAPI backend
   app/                      API, persistence, prediction, alerts, and notifications
   models/lstm_model.pt      Development checkpoint
-  scripts/                  Synthetic training and evaluation scripts
+  scripts/                  LSTM training and evaluation scripts
   tests/                    Backend tests
   MANUAL.md                 Backend deployment and configuration reference
 ```
@@ -114,6 +114,17 @@ Run the backend tests from `server`:
 ```powershell
 python -m pytest -q
 ```
+
+Train the LSTM from the repository CSV:
+
+```powershell
+python scripts/train_lstm.py
+```
+
+The trainer uses `temp_c`, `ph`, and `do_mgl`, creates chronological
+20-reading windows per site, and predicts whether the reading five steps
+ahead has `risk_level_code >= 1`. Use `--synthetic` only for the legacy
+generated-data training path.
 
 ### API routes
 
